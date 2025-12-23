@@ -217,20 +217,37 @@ class Database {
     }
   }
 
-  /*  */
-  static async addUserToDatabase(userId, databaseId, role = 'admin') {
+  /* Add a user to a database.
+   *
+   * Data should include:
+   *   { userId, databaseId, role }
+   *
+   * Returns { id, userId, databaseId, createdAt, updatedAt }
+   *
+   * Throws BadRequestError if user already exists in database.
+   **/
+  static async addUserToDatabase({ userId, databaseId, role = 'admin' }) {
+    console.log("userId from Database file: ", userId);
+    console.log("databaseId: ", databaseId);
+    console.log("role: ", role);
     try {
-      await db.query(
+      const result = await db.query(
         `INSERT INTO user_databases (
             user_id,
             database_id,
             role)
-        VALUES ($1, $2, $3)`,
+        VALUES ($1, $2, $3)
+        RETURNING user_id,
+                  database_id,
+                  role,
+                  created_at AS "createdAt",
+                  updated_at AS "updatedAt"`,
         [userId,
           databaseId,
           role]
       );
       console.log(`User ${userId} added to database ${databaseId} as ${role}`);
+      return result.rows[0];
     } catch (err) {
       console.error("Error adding user to database:", err);
       throw err;

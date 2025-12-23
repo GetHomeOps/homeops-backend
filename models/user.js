@@ -53,7 +53,7 @@ class User {
  *
  * Throws BadRequestError on duplicates.
  **/
-  static async register({ email, password, fullName, role = 'user' }) {
+  static async register({ email, password, fullName, role = 'admin' }) {
 
     const duplicateCheck = await db.query(`
       SELECT email
@@ -117,6 +117,21 @@ class User {
     return user;
   }
 
+  /* Get all users by database id */
+  static async getByDatabaseId(databaseId) {
+    const userRes = await db.query(`
+      SELECT u.id,
+             u.email,
+             u.full_name AS "fullName",
+             ud.role
+      FROM user_databases ud
+      JOIN users u ON u.id = ud.user_id
+      WHERE ud.database_id = $1`,
+      [databaseId]
+    );
+
+    return userRes.rows;
+  }
 
   /** Return data of ALL users.
    *
@@ -128,7 +143,7 @@ class User {
     const userRes = await db.query(`
         SELECT id,
                email,
-               full_name AS "FullName",
+               full_name AS "fullName",
                role,
                is_active AS "isActive",
                created_at AS "createdAt",

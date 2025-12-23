@@ -87,7 +87,7 @@ async function startServer() {
         return;
       }
 
-      const userDb = await Database.addUserToDatabase(user.id, mainDb.id);
+      const userDb = await Database.addUserToDatabase({ userId: user.id, databaseId: mainDb.id });
       console.log("userDb (after adding user):", userDb); // Debugging output
 
       if (userDb) {

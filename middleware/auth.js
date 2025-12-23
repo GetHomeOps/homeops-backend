@@ -97,18 +97,25 @@ async function ensureDatabaseUser(req, res, next) {
   }
 }
 
-/** Middleware to allow either super admin or correct user.
- *
- * If neither condition is met, raises Unauthorized.
- */
-function ensureSuperAdminOrCorrectUser(req, res, next) {
-  const currentUser = res.locals.user?.email;
-  const isSuperAdmin = res.locals.user?.role === 'super_admin';
 
-  if (isSuperAdmin || (currentUser && currentUser === req.params.email)) {
+
+/** Middleware to ensure the user is a database admin or super admin.
+ *
+ * If not, raises Unauthorized.
+ */
+function ensureAdminOrSuperAdmin(req, res, next) {
+  const userRole = res.locals.user?.role;
+  const isSuperAdmin = userRole === 'super_admin';
+  const isAdmin = userRole === 'admin' || userRole === 'agent';
+
+  console.log("userRole: ", userRole);
+  console.log("isSuperAdmin: ", isSuperAdmin);
+  console.log("isAdmin: ", isAdmin);
+
+  if (isSuperAdmin || isAdmin) {
     return next();
   }
-  throw new UnauthorizedError();
+  throw new UnauthorizedError("User not authorized to access this database.");
 }
 
 
@@ -117,6 +124,6 @@ module.exports = {
   ensureLoggedIn,
   ensureCorrectUser,
   ensureSuperAdmin,
-  ensureSuperAdminOrCorrectUser,
   ensureDatabaseUser,
+  ensureAdminOrSuperAdmin,
 };

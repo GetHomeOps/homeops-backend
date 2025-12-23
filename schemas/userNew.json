@@ -22,8 +22,27 @@
       "type": "string",
       "minLength": 1,
       "maxLength": 30
+    },
+    "contact_id": {
+      "type": "integer"
+    },
+    "database_id": {
+      "type": "integer"
+    },
+    "phone": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 30
     }
   },
   "additionalProperties": false,
-  "required": ["email", "password", "fullName", "role"]
+  "required": [
+    "email",
+    "password",
+    "fullName",
+    "role",
+    "contact_id",
+    "database_id",
+    "phone"
+  ]
 }

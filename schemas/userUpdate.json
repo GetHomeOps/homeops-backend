@@ -19,6 +19,11 @@
       "type": "string",
       "minLength": 1,
       "maxLength": 50
+    },
+    "role": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 30
     }
   },
   "additionalProperties": true,

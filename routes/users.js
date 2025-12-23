@@ -3,7 +3,7 @@
 /* Routes for users */
 const express = require("express");
 const jsonschema = require("jsonschema");
-const { ensureCorrectUser, ensureSuperAdmin, ensureSuperAdminOrCorrectUser } = require("../middleware/auth");
+const { ensureCorrectUser, ensureSuperAdmin, ensureAdminOrSuperAdmin, ensureDatabaseUser } = require("../middleware/auth");
 const { BadRequestError } = require("../expressError");
 const User = require("../models/user");
 const userUpdateSchema = require("../schemas/userUpdate.json");
@@ -23,6 +23,17 @@ router.get("/", ensureSuperAdmin, async function (req, res, next) {
 });
 
 
+/* GET /[databaseId] => {users: [user, ...]}
+*
+* Returns {email, fullName, role}
+*
+* Authorization required: database admin or superAdmin
+**/
+router.get("/db/:databaseId", ensureAdminOrSuperAdmin, async function (req, res, next) {
+  const users = await User.getByDatabaseId(req.params.databaseId);
+  return res.json({ users });
+});
+
 /* GET /[email] =>{user}
 *
 * Returns {email, fullName, role}
@@ -33,7 +44,6 @@ router.get("/:email", ensureCorrectUser, async function (req, res, next) {
   const user = await User.get(req.params.email);
   return res.json({ user });
 });
-
 
 /** PATCH /[email] { user } => { user }
  *
@@ -64,7 +74,7 @@ router.patch("/:email", ensureCorrectUser, async function (req, res, next) {
  *
  * Authorization required: correct user or SuperAdmin
  **/
-router.delete("/:email", ensureSuperAdminOrCorrectUser, async function (req, res, next) {
+router.delete("/:email", ensureSuperAdmin, async function (req, res, next) {
   await User.remove(req.params.email);
   return res.json({ deleted: req.params.email });
 });

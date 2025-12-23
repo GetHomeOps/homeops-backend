@@ -6,10 +6,7 @@ const cors = require("cors");
 const authRoutes = require("./routes/auth");
 const usersRoutes = require("./routes/users");
 const databasesRoutes = require("./routes/databases");
-const appsRoutes = require("./routes/apps");
-
-
-const bodyParser = require('body-parser');
+const contactsRoutes = require("./routes/contacts");
 
 const app = express();
 
@@ -21,7 +18,7 @@ app.use(authenticateJWT);
 app.use("/auth", authRoutes);
 app.use("/users", usersRoutes);
 app.use("/databases", databasesRoutes);
-app.use("/apps", appsRoutes);
+app.use("/contacts", contactsRoutes);
 
 /** Handle 404 errors -- this matches everything */
 app.use(function (req, res, next) {
