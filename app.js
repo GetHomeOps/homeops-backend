@@ -1,7 +1,6 @@
 const express = require('express');
 const { NotFoundError } = require("./expressError");
 const { authenticateJWT } = require("./middleware/auth");
-const cors = require("cors");
 
 const authRoutes = require("./routes/auth");
 const usersRoutes = require("./routes/users");
@@ -12,7 +11,7 @@ const app = express();
 
 app.use(express.json());
 
-app.use(cors({ origin: 'http://localhost:5173' }));
+// CORS is configured in server.js
 app.use(authenticateJWT);
 
 app.use("/auth", authRoutes);
