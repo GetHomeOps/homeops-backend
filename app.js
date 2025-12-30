@@ -26,7 +26,7 @@ app.use(cors(corsOptions));
 
 app.use(express.json());
 
-// app.use(authenticateJWT);
+app.use(authenticateJWT);
 
 // Add this health check route;
 app.get('/', (req, res) => {
