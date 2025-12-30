@@ -67,32 +67,35 @@ const PORT = process.env.PORT || 3000;
 // Initialize database and start server
 async function startServer() {
   try {
-    const user = await User.initializeSuperAdmin();
-    console.log("Super Admin user:", user);
-
-    if (user) {
-      const mainDb = await Database.createMainDatabase(user.id);
-      console.log("mainDb (after creation):", mainDb); // Debugging output
-
-      if (!mainDb) {
-        console.error("Main database creation failed!");
-        return;
-      }
-
-      const userDb = await Database.addUserToDatabase({ userId: user.id, databaseId: mainDb.id });
-      console.log("userDb (after adding user):", userDb); // Debugging output
-
-      if (userDb) {
-        console.log("User added to main database successfully.");
-      }
-    }
-
-    /*     app.listen(PORT, () => {
-          console.log(`Backend running on http://localhost:${PORT}`);
-        }); */
+    // Start server first to avoid 502 errors
     app.listen(PORT, '0.0.0.0', () => {
       console.log(`Backend running on port ${PORT}`);
     });
+
+    // Initialize database in background (non-blocking)
+    try {
+      const user = await User.initializeSuperAdmin();
+      console.log("Super Admin user:", user);
+
+      if (user) {
+        const mainDb = await Database.createMainDatabase(user.id);
+        console.log("mainDb (after creation):", mainDb);
+
+        if (mainDb) {
+          const userDb = await Database.addUserToDatabase({ userId: user.id, databaseId: mainDb.id });
+          console.log("userDb (after adding user):", userDb);
+
+          if (userDb) {
+            console.log("User added to main database successfully.");
+          }
+        } else {
+          console.warn("Main database creation failed, but server is running.");
+        }
+      }
+    } catch (dbError) {
+      // Log database errors but don't crash the server
+      console.error('Database initialization error (server still running):', dbError);
+    }
   } catch (error) {
     console.error('Failed to start server:', error);
     process.exit(1);

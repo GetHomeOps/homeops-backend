@@ -28,6 +28,11 @@ app.use(express.json());
 
 // app.use(authenticateJWT);
 
+// Health check endpoint
+app.get("/", (req, res) => {
+  res.json({ status: "ok", message: "HomeOps Backend API" });
+});
+
 app.use("/auth", authRoutes);
 app.use("/users", usersRoutes);
 app.use("/databases", databasesRoutes);
