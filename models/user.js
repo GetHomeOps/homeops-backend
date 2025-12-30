@@ -17,7 +17,7 @@ class User {
 
   /** authenticate user with username, password.
   *
-  * Returns {  email, fullName, role }
+  * Returns {  email, fullName, phone, role, contact, isActive }
   *
   * Throws UnauthorizedError is user not found or wrong password.
   **/
@@ -27,8 +27,11 @@ class User {
       SELECT id,
              email,
              password_hash AS "password",
-             full_name,
-             role
+             name,
+             phone,
+             role,
+             contact_id AS "contact",
+             is_active AS "isActive"
       FROM users
       WHERE email = $1`,
       [email]
@@ -49,11 +52,13 @@ class User {
 
   /** Register user with data.
  *
- * Returns { email, fullName, role  }
+ * Data should include: { name (required), email (required), password, phone, role, contact, isActive }
+ *
+ * Returns { email, fullName, phone, role, contact, isActive }
  *
  * Throws BadRequestError on duplicates.
  **/
-  static async register({ email, password, fullName, role = 'admin' }) {
+  static async register({ name, email, password, phone = null, role = 'admin', contact = 0, isActive = true }) {
 
     const duplicateCheck = await db.query(`
       SELECT email
@@ -68,23 +73,34 @@ class User {
 
     const hashedPassword = await bcrypt.hash(password, BCRYPT_WORK_FACTOR);
 
+    // Ensure contact is an integer, defaulting to 0 if null/undefined
+    const contactId = contact === null || contact === undefined ? 0 : parseInt(contact, 10) || 0;
+
     const result = await db.query(`
         INSERT INTO users (
               email,
               password_hash,
-              full_name,
-              role)
-        VALUES ($1,$2,$3,$4)
+              name,
+              phone,
+              role,
+              contact_id,
+              is_active)
+        VALUES ($1,$2,$3,$4,$5,$6,$7)
         RETURNING
               id,
               email,
-              full_name AS "fullName",
+              name AS "fullName",
+              phone,
               role,
+              contact_id AS "contact",
               is_active AS "isActive"`, [
       email,
       hashedPassword,
-      fullName,
+      name,
+      phone,
       role,
+      contactId,
+      isActive,
     ]
     );
 
@@ -95,7 +111,7 @@ class User {
 
   /** Given an email, return data about user.
    *
-   * Returns { email, fullName, role }
+   * Returns { email, fullName, phone, role, contact, isActive }
    *
    * Throws NotFoundError if user not found.
    **/
@@ -103,8 +119,11 @@ class User {
     const userRes = await db.query(`
         SELECT id,
                email,
-               full_name AS "fullName",
-               role
+               name AS "fullName",
+               phone,
+               role,
+               contact_id AS "contact",
+               is_active AS "isActive"
         FROM users
         WHERE email=$1`,
       [email]
@@ -122,7 +141,10 @@ class User {
     const userRes = await db.query(`
       SELECT u.id,
              u.email,
-             u.full_name AS "fullName",
+             u.name AS "fullName",
+             u.phone,
+             u.contact_id AS "contact",
+             u.is_active AS "isActive",
              ud.role
       FROM user_databases ud
       JOIN users u ON u.id = ud.user_id
@@ -135,7 +157,7 @@ class User {
 
   /** Return data of ALL users.
    *
-   * Returns { email, fullName, role, isActive }
+   * Returns { email, fullName, phone, role, contact, isActive }
    *
    * Throws NotFoundError if user not found.
    **/
@@ -143,8 +165,10 @@ class User {
     const userRes = await db.query(`
         SELECT id,
                email,
-               full_name AS "fullName",
+               name AS "fullName",
+               phone,
                role,
+               contact_id AS "contact",
                is_active AS "isActive",
                created_at AS "createdAt",
                updated_at AS "updatedAt"
@@ -164,9 +188,9 @@ class User {
      * all the fields; this only changes provided ones.
      *
      * Data can include:
-     *   { fullName, password, isActive }
+     *   { name, email, phone, role, contact, password, isActive }
      *
-     * Returns { email, fullName, isActive }
+     * Returns { email, fullName, phone, role, contact, isActive }
      *
      * Throws NotFoundError if not found.
      *
@@ -182,8 +206,10 @@ class User {
     const { setCols, values } = sqlForPartialUpdate(
       data,
       {
-        fullName: "full_name",
+        fullName: "name",
         isActive: "is_active",
+        contact: "contact_id",
+        password: "password_hash",
       });
     const emailVarIdx = "$" + (values.length + 1);
 
@@ -192,7 +218,10 @@ class User {
       SET ${setCols}
       WHERE email = ${emailVarIdx}
       RETURNING email,
-                full_name AS "fullName",
+                name AS "fullName",
+                phone,
+                role,
+                contact_id AS "contact",
                 is_active AS "isActive"`;
     const result = await db.query(querySql, [...values, email]);
     const user = result.rows[0];
@@ -203,23 +232,23 @@ class User {
   }
 
 
-  /** Remove user. Returns removed user
+  /** Remove user. Returns removed user id
    *
-   * Returns { email }
+   * Returns { id }
    *
    * Throws NotFoundError if user not found.
    **/
-  static async remove(email) {
+  static async remove(id) {
     const result = await db.query(`
       DELETE
       FROM users
-      WHERE email = $1
-      RETURNING email`,
-      [email]
+      WHERE id = $1
+      RETURNING id`,
+      [id]
     );
     const user = result.rows[0];
 
-    if (!user) throw new NotFoundError(`No user: ${email}`);
+    if (!user) throw new NotFoundError(`No user: ${id}`);
 
     return user;
   }
@@ -238,9 +267,9 @@ class User {
 
       if (result.rows.length === 0) {
         const res = await this.register({
+          name: process.env.SUPER_ADMIN_FULL_NAME,
           email: process.env.SUPER_ADMIN_EMAIL,
           password: process.env.SUPER_ADMIN_PASSWORD,
-          fullName: process.env.SUPER_ADMIN_FULL_NAME,
           role: 'super_admin',
         });
 

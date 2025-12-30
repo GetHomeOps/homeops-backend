@@ -7,17 +7,60 @@
       "minLength": 1,
       "maxLength": 255
     },
-    "email": {
+    "image": {
       "type": "string",
-      "maxLength": 255
+      "maxLength": 500
+    },
+    "type": {
+      "type": "integer",
+      "enum": [1, 2]
     },
     "phone": {
       "type": "string",
       "maxLength": 50
     },
+    "email": {
+      "type": "string",
+      "maxLength": 255
+    },
     "website": {
       "type": "string",
       "maxLength": 255
+    },
+    "street1": {
+      "type": "string",
+      "maxLength": 255
+    },
+    "street2": {
+      "type": "string",
+      "maxLength": 255
+    },
+    "city": {
+      "type": "string",
+      "maxLength": 100
+    },
+    "state": {
+      "type": "string",
+      "maxLength": 100
+    },
+    "zip_code": {
+      "type": "string",
+      "maxLength": 20
+    },
+    "country": {
+      "type": "string",
+      "maxLength": 100
+    },
+    "country_code": {
+      "type": "string",
+      "maxLength": 10
+    },
+    "notes": {
+      "type": "string"
+    },
+    "role": {
+      "type": "string",
+      "maxLength": 50
     }
   },
   "required": ["name"],

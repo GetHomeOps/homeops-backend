@@ -15,7 +15,7 @@ const router = express.Router();
  *
  * Authorization required: SuperAdmin
  **/
-router.get("/", ensureSuperAdmin, async function (req, res, next) {
+router.get("/all", ensureSuperAdmin, async function (req, res, next) {
   try {
     const contacts = await Contact.getAll();
     return res.json({ contacts });
@@ -55,15 +55,53 @@ router.get("/:id", ensureSuperAdmin, async function (req, res, next) {
   }
 });
 
-/** POST / { contact } => { contact }
+/** POST / { contact, databaseId? } => { contact, contactDatabase? }
  *
- * Create a new contact.
+ * Create a new contact and optionally add it to a database.
  *
  * Required fields: { name }
+ * Optional fields: { email, phone, website, databaseId }
+ *
+ * If databaseId is provided, the contact will be added to that database.
  *
  * Authorization required: SuperAdmin
  **/
-router.post("/", ensureSuperAdmin, async function (req, res, next) {
+router.post("/", async function (req, res, next) {
+  try {
+    const validator = jsonschema.validate(req.body, contactUpdateSchema);
+    if (!validator.valid) {
+      const errs = validator.errors.map(e => e.stack);
+      throw new BadRequestError(errs);
+    }
+
+    // Extract databaseId if provided
+    const { databaseId, ...contactData } = req.body;
+
+    // Create the contact
+    const contact = await Contact.create(contactData);
+
+    // If databaseId is provided, add contact to the database
+    let contactDatabase = null;
+    if (databaseId) {
+      contactDatabase = await Contact.addToDatabase({
+        contactId: contact.id,
+        databaseId: databaseId
+      });
+    }
+
+    const response = { contact };
+    if (contactDatabase) {
+      response.contactDatabase = contactDatabase;
+    }
+
+    return res.status(201).json(response);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+/* POST /[id] => { contact } */
+router.post("/:id", async function (req, res, next) {
   try {
     const validator = jsonschema.validate(req.body, contactUpdateSchema);
     if (!validator.valid) {
@@ -73,19 +111,26 @@ router.post("/", ensureSuperAdmin, async function (req, res, next) {
 
     const contact = await Contact.create(req.body);
     return res.status(201).json({ contact });
-  } catch (err) {
+  }
+  catch (err) {
     return next(err);
   }
 });
 
-/* POST /[id] => { contact } */
-
-router.post("/:id", async function (req, res, next) {
+/** POST /contacts_databases { contactDatabase } => { contactDatabase }
+ *
+ * Data should include:
+ *   { contactId, databaseId }
+ *
+ * Returns { contactId, databaseId, createdAt, updatedAt }
+ *
+ * Authorization required: database admin or super admin
+ **/
+router.post("/contacts_databases", async function (req, res, next) {
   try {
-    const contact = await Contact.create(req.body);
-    return res.status(201).json({ contact });
-  }
-  catch (err) {
+    const contactDatabase = await Contact.addToDatabase(req.body);
+    return res.status(201).json({ contactDatabase });
+  } catch (err) {
     return next(err);
   }
 });
@@ -96,7 +141,7 @@ router.post("/:id", async function (req, res, next) {
  *
  * Authorization required: SuperAdmin
  **/
-router.patch("/:id", ensureSuperAdmin, async function (req, res, next) {
+router.patch("/:id", async function (req, res, next) {
   try {
     const validator = jsonschema.validate(req.body, contactUpdateSchema);
     if (!validator.valid) {
@@ -117,7 +162,7 @@ router.patch("/:id", ensureSuperAdmin, async function (req, res, next) {
  *
  * Authorization required: SuperAdmin
  **/
-router.delete("/:id", ensureSuperAdmin, async function (req, res, next) {
+router.delete("/:id", async function (req, res, next) {
   try {
     await Contact.remove(req.params.id);
     return res.json({ deleted: req.params.id });

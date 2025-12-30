@@ -14,9 +14,10 @@ DROP TABLE IF EXISTS user_databases CASCADE;
 DROP TABLE IF EXISTS databases CASCADE;
 DROP TABLE IF EXISTS users CASCADE;
 DROP TABLE IF EXISTS contacts CASCADE;
+DROP TABLE IF EXISTS contacts_databases CASCADE;
 
 -- Drop existing types with CASCADE to avoid dependency issues
-DROP TYPE IF EXISTS user_role CASCADE;
+DROP TYPE IF EXISTS role CASCADE;
 DROP TYPE IF EXISTS db_role CASCADE;
 DROP TYPE IF EXISTS contact_type CASCADE;
 

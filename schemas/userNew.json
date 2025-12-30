@@ -3,46 +3,37 @@
   "$id": "http://example.com/example.json",
   "type": "object",
   "properties": {
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100
+    },
     "email": {
       "type": "string",
       "minLength": 1,
-      "maxLength": 50
+      "maxLength": 255,
+      "format": "email"
     },
     "password": {
       "type": "string",
       "minLength": 5,
       "maxLength": 20
     },
-    "fullName": {
+    "phone": {
       "type": "string",
-      "minLength": 1,
-      "maxLength": 30
+      "maxLength": 50
     },
     "role": {
       "type": "string",
-      "minLength": 1,
-      "maxLength": 30
+      "maxLength": 50
     },
-    "contact_id": {
+    "contact": {
       "type": "integer"
     },
-    "database_id": {
-      "type": "integer"
-    },
-    "phone": {
-      "type": "string",
-      "minLength": 1,
-      "maxLength": 30
+    "is_active": {
+      "type": "boolean"
     }
   },
   "additionalProperties": false,
-  "required": [
-    "email",
-    "password",
-    "fullName",
-    "role",
-    "contact_id",
-    "database_id",
-    "phone"
-  ]
+  "required": ["name", "email", "password"]
 }

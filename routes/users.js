@@ -66,17 +66,21 @@ router.patch("/:email", ensureCorrectUser, async function (req, res, next) {
 });
 
 
-/** DELETE /:email
+/** DELETE /:id
  *
- * Deletes the user identified by the given email.
+ * Deletes the user identified by the given id.
  *
- * Returns { deleted: email }
+ * Returns { deleted: id }
  *
- * Authorization required: correct user or SuperAdmin
  **/
-router.delete("/:email", ensureSuperAdmin, async function (req, res, next) {
-  await User.remove(req.params.email);
-  return res.json({ deleted: req.params.email });
+router.delete("/:id", async function (req, res, next) {
+  console.log("req.params.id", req.params.id);
+  try {
+    await User.remove(req.params.id);
+    return res.json({ deleted: req.params.id });
+  } catch (err) {
+    return next(err);
+  }
 });
 
 module.exports = router;
