@@ -8,7 +8,6 @@ const express = require('express');
 const i18next = require('i18next');
 const i18nextMiddleware = require('i18next-http-middleware');
 const Backend = require('i18next-fs-backend');
-const cors = require('cors');
 
 const path = require('path');
 require('dotenv').config();
@@ -34,19 +33,6 @@ i18next
 
 // Middleware for handling internationalization
 app.use(i18nextMiddleware.handle(i18next));
-
-// CORS Configuration - Customize allowed origins as needed
-const corsOptions = {
-  origin: [
-    'http://localhost:5173',
-    'http://localhost:5174',
-    'https://homeops-frontend2-production.up.railway.app'
-  ],
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-  credentials: true,
-};
-app.use(cors(corsOptions));
 
 // Endpoint to serve dynamic translations
 /**
