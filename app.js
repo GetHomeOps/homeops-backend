@@ -28,7 +28,7 @@ app.use(express.json());
 
 // app.use(authenticateJWT);
 
-/ Add this health check route;
+// Add this health check route;
 app.get('/', (req, res) => {
   res.json({
     status: 'ok',
