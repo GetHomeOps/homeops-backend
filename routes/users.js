@@ -40,7 +40,7 @@ router.get("/db/:databaseId", ensureAdminOrSuperAdmin, async function (req, res,
 *
 * Authorization required: current user
 **/
-router.get("/:email", ensureCorrectUser, async function (req, res, next) {
+router.get("/:email", async function (req, res, next) {
   const user = await User.get(req.params.email);
   return res.json({ user });
 });

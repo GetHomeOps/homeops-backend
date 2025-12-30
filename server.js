@@ -64,36 +64,39 @@ app.get('/locales/:lng/:ns', (req, res) => {
 // Server Port
 const PORT = process.env.PORT || 3000;
 
-// Initialize database in background (non-blocking)
-async function initializeDatabase() {
+// Initialize database and start server
+async function startServer() {
   try {
     const user = await User.initializeSuperAdmin();
     console.log("Super Admin user:", user);
 
     if (user) {
       const mainDb = await Database.createMainDatabase(user.id);
-      console.log("mainDb (after creation):", mainDb);
+      console.log("mainDb (after creation):", mainDb); // Debugging output
 
-      if (mainDb) {
-        const userDb = await Database.addUserToDatabase({ userId: user.id, databaseId: mainDb.id });
-        console.log("userDb (after adding user):", userDb);
+      if (!mainDb) {
+        console.error("Main database creation failed!");
+        return;
+      }
 
-        if (userDb) {
-          console.log("User added to main database successfully.");
-        }
-      } else {
-        console.warn("Main database creation failed, but server is running.");
+      const userDb = await Database.addUserToDatabase({ userId: user.id, databaseId: mainDb.id });
+      console.log("userDb (after adding user):", userDb); // Debugging output
+
+      if (userDb) {
+        console.log("User added to main database successfully.");
       }
     }
+
+    /*     app.listen(PORT, () => {
+          console.log(`Backend running on http://localhost:${PORT}`);
+        }); */
+    app.listen(PORT, '0.0.0.0', () => {
+      console.log(`Backend running on port ${PORT}`);
+    });
   } catch (error) {
-    // Log database errors but don't crash the server
-    console.error('Database initialization error (server still running):', error);
+    console.error('Failed to start server:', error);
+    process.exit(1);
   }
 }
 
-// Start server immediately
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Backend running on port ${PORT}`);
-  // Initialize database in parallel after server starts
-  initializeDatabase();
-});
+startServer();
