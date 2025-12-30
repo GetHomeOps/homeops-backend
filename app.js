@@ -28,9 +28,17 @@ app.use(express.json());
 
 // app.use(authenticateJWT);
 
-// Health check endpoint
-app.get("/", (req, res) => {
-  res.json({ status: "ok", message: "HomeOps Backend API" });
+/ Add this health check route;
+app.get('/', (req, res) => {
+  res.json({
+    status: 'ok',
+    message: 'HomeOps Backend API',
+    timestamp: new Date().toISOString()
+  });
+});
+
+app.get('/health', (req, res) => {
+  res.json({ status: 'healthy' });
 });
 
 app.use("/auth", authRoutes);
