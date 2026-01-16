@@ -7,6 +7,8 @@ const { ensureCorrectUser, ensureSuperAdmin, ensureAdminOrSuperAdmin, ensureData
 const { BadRequestError } = require("../expressError");
 const User = require("../models/user");
 const userUpdateSchema = require("../schemas/userUpdate.json");
+const UserInvitation = require("../models/userInvitation");
+const { createInvitationForUser, getInvitationForFrontend } = require("../services/invitationService");
 
 const router = express.Router();
 
@@ -82,5 +84,81 @@ router.delete("/:id", async function (req, res, next) {
     return next(err);
   }
 });
+
+/* GET /users/user-databases => { databaseIds }
+* Checks if the user is linked to any database and returns the database ids
+*
+* Returns { databaseIds }
+*
+* Authorization required: current user
+**/
+router.get("/user-databases", async function (req, res, next) {
+  const userId = res.locals.user?.id;
+  if (!userId) {
+    throw new UnauthorizedError("User authentication required.");
+  }
+  const databaseIds = await User.userHasDatabase(userId);
+  return res.json({ databaseIds: databaseIds.rows.map(row => row.database_id) });
+});
+
+/* ----- Invitation Routes ----- */
+
+
+/** POST /users/invite
+ *
+ * { userId } => { token }
+ *
+ * Sends an invitation email to the user.
+ *
+ * Authorization required: admin
+ */
+router.post("/invite", async (req, res) => {
+  const { userId } = req.body;
+
+  try {
+    const result = await createInvitationForUser(userId);
+
+    return res.status(201).json({ result });
+
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+
+});
+
+
+/** GET /users/invite/:userId
+ *
+ * { userId } => { token }
+ *
+ * Returns the invitation token for the user.
+ *
+ * Authorization required: admin
+ */
+router.get("/invite/:userId", async (req, res, next) => {
+  try {
+    const { userId } = req.params;
+    const result = await getInvitationForFrontend(userId);
+    return res.json({ result });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+/* Activate User */
+router.post("/activate/:userId", async (req, res, next) => {
+  try {
+    const { userId } = req.params;
+    const result = await User.activateUser(userId);
+    return res.json({ result });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+
+
+
+
 
 module.exports = router;

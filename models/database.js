@@ -6,27 +6,30 @@ const {
   BadRequestError
 } = require("../expressError");
 const { sqlForPartialUpdate } = require("../helpers/sql");
+const { generateDatabaseName } = require("../services/databaseService");
 
 // Model for database-related functions
 class Database {
 
   /** Create a new database with data.
    *
+   * Data should include:
+   *   { name } - User's name (used to generate unique URL)
+   *
+   * The URL is automatically generated using generateDatabaseName(name).
+   * The name parameter is used as the display name for the database.
+   *
    * Returns { id, name, url, createdAt, updatedAt }
    *
-   * Throws BadRequestError on duplicates.
+   * Throws BadRequestError if name is missing or URL generation fails.
    **/
-  static async create({ name, url }) {
-    const duplicateCheck = await db.query(
-      `SELECT id
-       FROM databases
-       WHERE url = $1`,
-      [url]
-    );
-
-    if (duplicateCheck.rows.length > 0) {
-      throw new BadRequestError(`Duplicate database name or URL`);
+  static async create({ name }) {
+    if (!name) {
+      throw new BadRequestError("Name is required to create a database");
     }
+
+    // Generate unique URL from name
+    const url = await generateDatabaseName(name);
 
     const result = await db.query(
       `INSERT INTO databases (
@@ -194,10 +197,9 @@ class Database {
 
       // If the 'main' database doesn't exist, create it
       if (userDb.rows.length === 0) {
-        // Create the main database
+        // Create the main database (URL will be auto-generated from name)
         const mainDb = await this.create({
-          name: 'main',
-          url: 'main'
+          name: 'main'
         });
 
         console.log("Main database created:", mainDb);
@@ -227,9 +229,7 @@ class Database {
    * Throws BadRequestError if user already exists in database.
    **/
   static async addUserToDatabase({ userId, databaseId, role = 'admin' }) {
-    console.log("userId from Database file: ", userId);
-    console.log("databaseId: ", databaseId);
-    console.log("role: ", role);
+
     try {
       const result = await db.query(
         `INSERT INTO user_databases (
@@ -272,6 +272,8 @@ class Database {
       throw err;
     }
   }
+
+
 }
 
 

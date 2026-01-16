@@ -12,7 +12,7 @@ CREATE TABLE users(
     phone VARCHAR(50),
     role role DEFAULT 'admin',
     contact_id INTEGER DEFAULT 0,
-    is_active BOOLEAN DEFAULT true,
+    is_active BOOLEAN DEFAULT false,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
@@ -66,4 +66,14 @@ CREATE TABLE contacts_databases (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (contact_id, database_id)
+);
+
+-- User Invitations Table
+CREATE TABLE user_invitations (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  token_hash TEXT NOT NULL UNIQUE,
+  expires_at TIMESTAMP NOT NULL,
+  used_at TIMESTAMP NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT now()
 );

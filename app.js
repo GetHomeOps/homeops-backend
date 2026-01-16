@@ -1,5 +1,6 @@
 const express = require('express');
 const cors = require('cors');
+const path = require('path');
 const { NotFoundError } = require("./expressError");
 const { authenticateJWT } = require("./middleware/auth");
 
@@ -50,6 +51,23 @@ app.use("/contacts", contactsRoutes);
 app.use(function (req, res, next) {
   throw new NotFoundError();
 });
+
+/**
+ * Serve React frontend
+ * Make sure you've run `npm run build` in the frontend
+ * and the build folder is located at ../frontend/build
+ */
+/* app.use(express.static(path.join(__dirname, '../frontend/build'))); */
+
+// Catch-all route to serve React index.html for unknown routes
+/* app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, '../frontend/build', 'index.html'));
+}); */
+
+// 404 handler for any unmatched API routes (optional, after React fallback)
+/* app.use(function (req, res, next) {
+  throw new NotFoundError();
+}); */
 
 /** Generic error handler; anything unhandled goes here. */
 app.use(function (err, req, res, next) {

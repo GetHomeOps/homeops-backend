@@ -15,7 +15,7 @@ const router = express.Router();
  *
  * Authorization required: superAdmin
  **/
-router.get("/", ensureSuperAdmin, async function (req, res, next) {
+router.get("/", async function (req, res, next) {
   const databases = await Database.getAll();
   return res.json({ databases });
 });
@@ -57,15 +57,20 @@ router.get("/:id", async function (req, res, next) {
  *
  * Authorization required: superAdmin
  **/
-router.post("/", ensureAdminOrSuperAdmin, async function (req, res, next) {
-  const validator = jsonschema.validate(req.body, databaseUpdateSchema);
-  if (!validator.valid) {
-    const errs = validator.errors.map(e => e.stack);
-    throw new BadRequestError(errs);
-  }
+router.post("/", async function (req, res, next) {
+  console.log("req.body: ", req);
+  try {
+    const validator = jsonschema.validate(req.body, databaseUpdateSchema);
+    if (!validator.valid) {
+      const errs = validator.errors.map(e => e.stack);
+      throw new BadRequestError(errs);
+    }
 
-  const database = await Database.create(req.body);
-  return res.status(201).json({ database });
+    const database = await Database.create(req.body);
+    return res.status(201).json({ database });
+  } catch (err) {
+    return next(err);
+  }
 });
 
 /** POST /user_databases { userDatabase } => { userDatabase }

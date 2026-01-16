@@ -58,7 +58,7 @@ class User {
  *
  * Throws BadRequestError on duplicates.
  **/
-  static async register({ name, email, password, phone = null, role = 'admin', contact = 0, isActive = true }) {
+  static async register({ name, email, password, phone = null, role = 'admin', contact = 0, is_active = false }) {
 
     const duplicateCheck = await db.query(`
       SELECT email
@@ -89,18 +89,18 @@ class User {
         RETURNING
               id,
               email,
-              name AS "fullName",
+              name,
               phone,
               role,
               contact_id AS "contact",
-              is_active AS "isActive"`, [
+              is_active`, [
       email,
       hashedPassword,
       name,
       phone,
       role,
       contactId,
-      isActive,
+      is_active
     ]
     );
 
@@ -119,7 +119,7 @@ class User {
     const userRes = await db.query(`
         SELECT id,
                email,
-               name AS "fullName",
+               name,
                phone,
                role,
                contact_id AS "contact",
@@ -141,7 +141,7 @@ class User {
     const userRes = await db.query(`
       SELECT u.id,
              u.email,
-             u.name AS "fullName",
+             u.name,
              u.phone,
              u.contact_id AS "contact",
              u.is_active AS "isActive",
@@ -165,7 +165,7 @@ class User {
     const userRes = await db.query(`
         SELECT id,
                email,
-               name AS "fullName",
+               name,
                phone,
                role,
                contact_id AS "contact",
@@ -206,7 +206,6 @@ class User {
     const { setCols, values } = sqlForPartialUpdate(
       data,
       {
-        fullName: "name",
         isActive: "is_active",
         contact: "contact_id",
         password: "password_hash",
@@ -271,6 +270,7 @@ class User {
           email: process.env.SUPER_ADMIN_EMAIL,
           password: process.env.SUPER_ADMIN_PASSWORD,
           role: 'super_admin',
+          is_active: true,
         });
 
         console.log("Super admin initialized");
@@ -280,6 +280,54 @@ class User {
     } catch (err) {
       console.error("Error initializing super admin:", err);
     }
+  }
+
+  /* Check if user is linked to any database and return the database ids */
+  static async userHasDatabase(userId) {
+    const result = await db.query(
+      `SELECT database_id
+      FROM user_databases
+      WHERE user_id = $1
+      RETURNING database_id`,
+      [userId]
+    );
+    return result;
+  }
+
+  /* ----- Invitation functions ----- */
+
+  /* Activate user from invitation */
+  static async activateFromInvitation(userId, password) {
+    const hashedPassword = await bcrypt.hash(password, BCRYPT_WORK_FACTOR);
+
+    const result = await db.query(
+      `UPDATE users
+      SET password_hash = $1,
+          is_active = true
+      WHERE id = $2
+      RETURNING id,
+       email,
+       name AS "fullName",
+       phone,
+       role,
+       contact_id AS "contact",
+       is_active AS "isActive"`,
+      [hashedPassword, userId]
+    );
+
+    return result.rows[0];
+  }
+
+  /* Activate Signup User */
+  static async activateUser(userId) {
+    const result = await db.query(
+      `UPDATE users
+      SET is_active = true
+      WHERE id = $1
+      RETURNING id, email, name, phone, role, contact_id AS "contact", is_active AS "isActive"`,
+      [userId]
+    );
+    return result.rows[0];
   }
 }
 
