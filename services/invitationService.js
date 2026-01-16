@@ -15,9 +15,6 @@ const { BadRequestError } = require("../expressError");
 async function createInvitationForUser(userId) {
   const { token, tokenHash } = generateInvitationToken();
 
-  console.log("Token:", token);
-  console.log("Token Hash:", tokenHash);
-
   const expiresAt = new Date();
   expiresAt.setHours(expiresAt.getHours() + 48); // 48h expiry
 
@@ -84,20 +81,20 @@ async function acceptInvitation({ token, password }) {
   await db.query("BEGIN");
 
   try {
-    await db.query(
-      `
-      UPDATE users
+    const result = await db.query(
+      `UPDATE users
       SET password_hash = $1,
-          status = 'active'
-      WHERE id = $2
-      `,
+          is_active = true
+      WHERE id = $2`,
       [passwordHash, invitation.user_id]
     );
+
+    console.log("Result:", result.rows);
 
     await UserInvitation.markUsed(invitation.id);
 
     await db.query("COMMIT");
-    return { userId: invitation.user_id };
+    return result.rows[0];
 
   } catch (err) {
     await db.query("ROLLBACK");

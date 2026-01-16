@@ -198,34 +198,36 @@ class User {
      * Callers of this function must be certain they have validated inputs to this
      * or serious security risks are opened.
      */
-  static async update(email, data) {
-    if (data.password) {
-      data.password = await bcrypt.hash(data.password, BCRYPT_WORK_FACTOR);
-    }
+  static async update({ id, name, phone, contact }) {
+    /*  if (password) {
+       password = await bcrypt.hash(password, BCRYPT_WORK_FACTOR);
+     } */
 
-    const { setCols, values } = sqlForPartialUpdate(
-      data,
+    const { setCols, values } = sqlForPartialUpdate({
+      name,
+      phone,
+      contact_id: contact
+    },
       {
-        isActive: "is_active",
-        contact: "contact_id",
-        password: "password_hash",
+        contact_id: "contact_id"
       });
-    const emailVarIdx = "$" + (values.length + 1);
+    const idVarIdx = "$" + (values.length + 1);
 
     const querySql = `
       UPDATE users
       SET ${setCols}
-      WHERE email = ${emailVarIdx}
-      RETURNING email,
-                name AS "fullName",
+      WHERE id = ${idVarIdx}
+      RETURNING id,
+                email,
+                name,
                 phone,
                 role,
-                contact_id AS "contact",
-                is_active AS "isActive"`;
-    const result = await db.query(querySql, [...values, email]);
+                contact_id AS "contact"
+                `;
+    const result = await db.query(querySql, [...values, id]);
     const user = result.rows[0];
 
-    if (!user) throw new NotFoundError(`No user: ${email}`);
+    if (!user) throw new NotFoundError(`No user: ${id}`);
 
     return user;
   }

@@ -83,8 +83,7 @@ router.post("/confirm", async function (req, res, next) {
       throw new BadRequestError("Token and password are required");
     }
 
-    // console.log("Token:", token);
-
+    console.log("Token 1:", token);
     // 1. Validate invitation token (ONLY input)
     const invitation =
       await UserInvitation.validateInvitationToken(token);

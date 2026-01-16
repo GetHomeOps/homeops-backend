@@ -56,15 +56,19 @@ router.get("/:email", async function (req, res, next) {
  *
  * Authorization required: current user or SuperAdmin
  **/
-router.patch("/:email", ensureCorrectUser, async function (req, res, next) {
-  const validator = jsonschema.validate(req.body, userUpdateSchema);
-  if (!validator.valid) {
-    const errs = validator.errors.map(e => e.stack);
-    throw new BadRequestError(errs);
-  }
+router.patch("/:id", async function (req, res, next) {
+  try {
+    const validator = jsonschema.validate(req.body, userUpdateSchema);
+    if (!validator.valid) {
+      const errs = validator.errors.map(e => e.stack);
+      throw new BadRequestError(errs);
+    }
 
-  const user = await User.update(req.params.email, req.body);
-  return res.json({ user });
+    const user = await User.update({ id: req.params.id, ...req.body });
+    return res.json({ user });
+  } catch (err) {
+    return next(err);
+  }
 });
 
 

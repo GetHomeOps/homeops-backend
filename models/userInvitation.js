@@ -110,6 +110,8 @@ class UserInvitation {
       throw new BadRequestError("Invitation token required");
     }
 
+    console.log("Token 2:", token);
+
     const tokenHash = crypto
       .createHash("sha256")
       .update(token)
