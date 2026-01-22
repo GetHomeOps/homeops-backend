@@ -7,6 +7,7 @@ const {
 } = require("../expressError");
 const { sqlForPartialUpdate } = require("../helpers/sql");
 const { generateDatabaseName } = require("../services/databaseService");
+const { isDatabaseLinkedToUser } = require("../helpers/usersDatabases");
 
 // Model for database-related functions
 class Database {
@@ -229,22 +230,33 @@ class Database {
    * Throws BadRequestError if user already exists in database.
    **/
   static async addUserToDatabase({ userId, databaseId, role = 'admin' }) {
+    /* Check if the database is linked to any user - if it is not, role should be admin, otherwise, whatever role is passed in*/
+    const isLinked = await isDatabaseLinkedToUser(databaseId);
+    let dbAdmin = false;
 
+    if (!isLinked) {
+      dbAdmin = true;
+    } else {
+      dbAdmin = false;
+    }
     try {
       const result = await db.query(
         `INSERT INTO user_databases (
             user_id,
             database_id,
-            role)
-        VALUES ($1, $2, $3)
+            role,
+            db_admin)
+        VALUES ($1, $2, $3, $4)
         RETURNING user_id,
                   database_id,
                   role,
                   created_at AS "createdAt",
-                  updated_at AS "updatedAt"`,
+                  updated_at AS "updatedAt",
+                  db_admin AS "dbAdmin"`,
         [userId,
           databaseId,
-          role]
+          role,
+          dbAdmin]
       );
       console.log(`User ${userId} added to database ${databaseId} as ${role}`);
       return result.rows[0];

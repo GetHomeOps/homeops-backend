@@ -86,12 +86,10 @@ class UserInvitation {
    */
   static async invalidateAllForUser(userId) {
     await db.query(
-      `
-      UPDATE user_invitations
+      `UPDATE user_invitations
       SET used_at = now()
       WHERE user_id = $1
-        AND used_at IS NULL
-      `,
+        AND used_at IS NULL`,
       [userId]
     );
   }
@@ -109,8 +107,6 @@ class UserInvitation {
     if (!token) {
       throw new BadRequestError("Invitation token required");
     }
-
-    console.log("Token 2:", token);
 
     const tokenHash = crypto
       .createHash("sha256")

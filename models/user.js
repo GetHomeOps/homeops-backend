@@ -8,6 +8,7 @@ const {
   UnauthorizedError
 } = require("../expressError");
 const { sqlForPartialUpdate } = require("../helpers/sql");
+const { isDatabaseAdmin } = require("../helpers/usersDatabases");
 
 
 const { BCRYPT_WORK_FACTOR } = require("../config.js");
@@ -222,7 +223,8 @@ class User {
                 name,
                 phone,
                 role,
-                contact_id AS "contact"
+                contact_id AS "contact",
+                is_active AS "isActive"
                 `;
     const result = await db.query(querySql, [...values, id]);
     const user = result.rows[0];
@@ -240,18 +242,27 @@ class User {
    * Throws NotFoundError if user not found.
    **/
   static async remove(id) {
-    const result = await db.query(`
-      DELETE
-      FROM users
-      WHERE id = $1
-      RETURNING id`,
-      [id]
-    );
-    const user = result.rows[0];
 
-    if (!user) throw new NotFoundError(`No user: ${id}`);
+    /* Check if user is a database admin */
+    const isAdmin = await isDatabaseAdmin(id);
+    if (isAdmin) {
+      throw new BadRequestError("User is a database admin and cannot be removed");
+    }
+    else {
+      const result = await db.query(
+        `DELETE
+         FROM users
+         WHERE id = $1
+         RETURNING id`,
+        [id]
+      );
+      const user = result.rows[0];
 
-    return user;
+      if (!user) throw new NotFoundError(`No user: ${id}`);
+
+      return user;
+    }
+
   }
 
   /**

@@ -33,10 +33,15 @@ router.post("/token", async function (req, res, next) {
     throw new BadRequestError(errs);
   }
 
-  const { email, password } = req.body;
-  const user = await User.authenticate(email, password);
-  const token = createToken(user);
-  return res.json({ token });
+  try {
+    const { email, password } = req.body;
+    const user = await User.authenticate(email, password);
+    const token = createToken(user);
+    return res.json({ token });
+  } catch (err) {
+    return next(err);
+  }
+
 });
 
 

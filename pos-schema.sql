@@ -33,6 +33,7 @@ CREATE TABLE user_databases(
     role db_role DEFAULT 'admin',
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    db_admin BOOLEAN DEFAULT FALSE,
     PRIMARY KEY (user_id, database_id)
 );
 

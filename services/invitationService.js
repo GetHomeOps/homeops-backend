@@ -18,13 +18,22 @@ async function createInvitationForUser(userId) {
   const expiresAt = new Date();
   expiresAt.setHours(expiresAt.getHours() + 48); // 48h expiry
 
-  await UserInvitation.create({
-    userId,
-    tokenHash,
-    expiresAt
-  });
+  try {
+    // Invalidate all existing invitations for the user
+    await UserInvitation.invalidateAllForUser(userId);
 
-  return token;
+    await UserInvitation.create({
+      userId,
+      tokenHash,
+      expiresAt
+    });
+
+    return token;
+
+  } catch (err) {
+    console.error("Error creating invitation for user:", err);
+    throw err;
+  }
 }
 
 /**
