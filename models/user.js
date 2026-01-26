@@ -152,7 +152,38 @@ class User {
       WHERE ud.database_id = $1`,
       [databaseId]
     );
+    console.log("userRes.rows:", userRes.rows);
+    return userRes.rows;
+  }
 
+  /* Get agent + all users for whom they are the agent */
+  static async getByAgentId(userId) {
+    const userRes = await db.query(`
+      SELECT u.id,
+             u.email,
+             u.name,
+             u.phone,
+             u.contact_id AS "contact",
+             u.is_active AS "isActive",
+             u.role::text AS "role"
+      FROM users u
+      WHERE u.id = $1
+
+      UNION
+
+      SELECT DISTINCT u.id,
+             u.email,
+             u.name,
+             u.phone,
+             u.contact_id AS "contact",
+             u.is_active AS "isActive",
+             u.role::text AS "role"
+      FROM agent_databases ad
+      JOIN user_databases ud ON ud.database_id = ad.database_id
+      JOIN users u ON u.id = ud.user_id
+      WHERE ad.agent_id = $1`,
+      [userId]
+    );
     return userRes.rows;
   }
 

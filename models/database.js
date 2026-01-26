@@ -285,6 +285,42 @@ class Database {
     }
   }
 
+  /* Link user to database with data */
+  static async linkUserToDatabase(data) {
+
+    const name = data.newUser.name;
+    try {
+      const database = await this.create({ name: name });
+      await this.addUserToDatabase({ userId: data.newUser.id, databaseId: database.id, role: 'admin' });
+
+      if (data.createdByRole === "agent") {
+        const createdBy = data.createdBy;
+
+        await this.linkAgentToDatabase({ userId: createdBy, databaseId: database.id });
+        return { success: true, message: "User linked to database successfully" };
+      }
+    } catch (err) {
+      console.error("Error linking user to database:", err);
+      throw err;
+    }
+  }
+
+  /* Link Agent to Database */
+  static async linkAgentToDatabase(data) {
+    console.log("data: ", data);
+    const { userId, databaseId } = data;
+    const result = await db.query(
+      `INSERT INTO agent_databases (
+          agent_id,
+          database_id)
+        VALUES ($1, $2)
+        RETURNING agent_id, database_id`,
+      [userId, databaseId]
+    );
+    console.log("Agent linked to database successfully");
+    return result.rows[0];
+  }
+
 
 }
 

@@ -32,5 +32,23 @@ async function isDatabaseAdmin(userId) {
   }
 }
 
+/* Link user to database */
+/* async function linkUserToDatabase(createdBy, createdByRole, userId, databaseId) {
+  console.log("createdBy: ", createdBy);
+  console.log("createdByRole: ", createdByRole);
+  console.log("userId: ", userId);
+  console.log("databaseId: ", databaseId);
+  console.log("name: ", name);
+  const name = createdBy.name;
+
+  if (createdByRole === "super_admin" || createdByRole === "agent") {
+    const database = await Database.create({ name });
+    console.log("Db name: ", database.name);
+
+  }
+  return database;
+} */
+
+
 
 module.exports = { isDatabaseLinkedToUser, isDatabaseAdmin };

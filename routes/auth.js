@@ -54,8 +54,12 @@ router.post("/token", async function (req, res, next) {
  * Authorization required: none
  */
 router.post("/register", async function (req, res, next) {
+  /* console.log("req.body: ", req.body.userData);
+  console.log("req.body.createdBy: ", req.body.createdBy);
+  console.log("req.body.createdByRole: ", req.body.createdByRole); */
+
   const validator = jsonschema.validate(
-    req.body,
+    req.body.userData,
     userRegisterSchema,
     { required: true }
   );
@@ -64,7 +68,16 @@ router.post("/register", async function (req, res, next) {
     throw new BadRequestError(errs);
   }
   try {
-    const newUser = await User.register({ ...req.body });
+    const newUser = await User.register({ ...req.body.userData });
+
+    const userDb = await Database.linkUserToDatabase(
+      {
+        newUser,
+        databaseId: req.body.databaseId,
+        createdBy: req.body.createdBy,
+        createdByRole: req.body.createdByRole
+      }
+    );
     const token = createToken(newUser);
     return res.status(201).json({ token });
   } catch (err) {
@@ -103,12 +116,12 @@ router.post("/confirm", async function (req, res, next) {
 
     const database = await Database.create({ name });
 
-    // 4. Link user to database
+    /* // 4. Link user to database
     await Database.addUserToDatabase({
       userId: result.id,
       databaseId: database.id,
       role: 'admin'
-    });
+    }); */
     return res.json({
       success: true,
       message: "Account activated successfully"

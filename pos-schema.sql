@@ -37,6 +37,14 @@ CREATE TABLE user_databases(
     PRIMARY KEY (user_id, database_id)
 );
 
+-- Agent Databases Junction Table
+CREATE TABLE agent_databases (
+    agent_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    database_id INTEGER REFERENCES databases(id) ON DELETE CASCADE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (agent_id, database_id)
+);
 
 -- Contacts Table
 CREATE TABLE contacts (

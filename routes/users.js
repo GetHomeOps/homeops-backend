@@ -31,8 +31,21 @@ router.get("/", ensureSuperAdmin, async function (req, res, next) {
 *
 * Authorization required: database admin or superAdmin
 **/
-router.get("/db/:databaseId", ensureAdminOrSuperAdmin, async function (req, res, next) {
+router.get("/db/:databaseId", async function (req, res, next) {
+  console.log("req.params.databaseId", req.params.databaseId);
   const users = await User.getByDatabaseId(req.params.databaseId);
+  return res.json({ users });
+});
+
+/* GET /[agentId] => {users: [user, ...]}
+*
+* Returns {email, fullName, role}
+*
+* Authorization required: superAdmin or correct user
+**/
+router.get("/agent/:agentId", async function (req, res, next) {
+  const users = await User.getByAgentId(req.params.agentId);
+  console.log("****** Users are: ****** ", users);
   return res.json({ users });
 });
 
@@ -159,9 +172,6 @@ router.post("/activate/:userId", async (req, res, next) => {
     return next(err);
   }
 });
-
-
-
 
 
 
