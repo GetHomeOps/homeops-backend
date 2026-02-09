@@ -117,7 +117,8 @@ class User {
    * Throws NotFoundError if user not found.
    **/
   static async get(email) {
-    const userRes = await db.query(`
+    try {
+      const userRes = await db.query(`
         SELECT id,
                email,
                name,
@@ -127,19 +128,23 @@ class User {
                is_active AS "isActive"
         FROM users
         WHERE email=$1`,
-      [email]
-    );
+        [email]
+      );
 
-    const user = userRes.rows[0];
+      const user = userRes.rows[0];
 
-    if (!user) throw new NotFoundError(`No user: ${email}`);
+      if (!user) throw new NotFoundError(`No user: ${email}`);
 
-    return user;
+      return user;
+    } catch (err) {
+      throw err;
+    }
   }
 
   /* Get all users by database id */
   static async getByDatabaseId(databaseId) {
-    const userRes = await db.query(`
+    try {
+      const userRes = await db.query(`
       SELECT u.id,
              u.email,
              u.name,
@@ -150,15 +155,19 @@ class User {
       FROM user_databases ud
       JOIN users u ON u.id = ud.user_id
       WHERE ud.database_id = $1`,
-      [databaseId]
-    );
-    console.log("userRes.rows:", userRes.rows);
-    return userRes.rows;
+        [databaseId]
+      );
+      console.log("userRes.rows:", userRes.rows);
+      return userRes.rows;
+    } catch (err) {
+      throw err;
+    }
   }
 
   /* Get agent + all users for whom they are the agent */
   static async getByAgentId(userId) {
-    const userRes = await db.query(`
+    try {
+      const userRes = await db.query(`
       SELECT u.id,
              u.email,
              u.name,
@@ -182,9 +191,12 @@ class User {
       JOIN user_databases ud ON ud.database_id = ad.database_id
       JOIN users u ON u.id = ud.user_id
       WHERE ad.agent_id = $1`,
-      [userId]
-    );
-    return userRes.rows;
+        [userId]
+      );
+      return userRes.rows;
+    } catch (err) {
+      throw err;
+    }
   }
 
   /** Return data of ALL users.
@@ -194,7 +206,8 @@ class User {
    * Throws NotFoundError if user not found.
    **/
   static async getAll() {
-    const userRes = await db.query(`
+    try {
+      const userRes = await db.query(`
         SELECT id,
                email,
                name,
@@ -205,13 +218,16 @@ class User {
                created_at AS "createdAt",
                updated_at AS "updatedAt"
         FROM users`
-    );
+      );
 
-    const users = userRes.rows;
+      const users = userRes.rows;
 
-    if (!users) throw new NotFoundError(`No users found`);
+      if (!users) throw new NotFoundError(`No users found`);
 
-    return users;
+      return users;
+    } catch (err) {
+      throw err;
+    }
   }
 
   /** Update user data with `data`.
@@ -231,21 +247,22 @@ class User {
      * or serious security risks are opened.
      */
   static async update({ id, name, phone, contact }) {
-    /*  if (password) {
-       password = await bcrypt.hash(password, BCRYPT_WORK_FACTOR);
-     } */
+    try {
+      /*  if (password) {
+         password = await bcrypt.hash(password, BCRYPT_WORK_FACTOR);
+       } */
 
-    const { setCols, values } = sqlForPartialUpdate({
-      name,
-      phone,
-      contact_id: contact
-    },
-      {
-        contact_id: "contact_id"
-      });
-    const idVarIdx = "$" + (values.length + 1);
+      const { setCols, values } = sqlForPartialUpdate({
+        name,
+        phone,
+        contact_id: contact
+      },
+        {
+          contact_id: "contact_id"
+        });
+      const idVarIdx = "$" + (values.length + 1);
 
-    const querySql = `
+      const querySql = `
       UPDATE users
       SET ${setCols}
       WHERE id = ${idVarIdx}
@@ -257,12 +274,15 @@ class User {
                 contact_id AS "contact",
                 is_active AS "isActive"
                 `;
-    const result = await db.query(querySql, [...values, id]);
-    const user = result.rows[0];
+      const result = await db.query(querySql, [...values, id]);
+      const user = result.rows[0];
 
-    if (!user) throw new NotFoundError(`No user: ${id}`);
+      if (!user) throw new NotFoundError(`No user: ${id}`);
 
-    return user;
+      return user;
+    } catch (err) {
+      throw err;
+    }
   }
 
 
@@ -273,27 +293,29 @@ class User {
    * Throws NotFoundError if user not found.
    **/
   static async remove(id) {
-
-    /* Check if user is a database admin */
-    const isAdmin = await isDatabaseAdmin(id);
-    if (isAdmin) {
-      throw new BadRequestError("User is a database admin and cannot be removed");
-    }
-    else {
-      const result = await db.query(
-        `DELETE
+    try {
+      /* Check if user is a database admin */
+      const isAdmin = await isDatabaseAdmin(id);
+      if (isAdmin) {
+        throw new BadRequestError("User is a database admin and cannot be removed");
+      }
+      else {
+        const result = await db.query(
+          `DELETE
          FROM users
          WHERE id = $1
          RETURNING id`,
-        [id]
-      );
-      const user = result.rows[0];
+          [id]
+        );
+        const user = result.rows[0];
 
-      if (!user) throw new NotFoundError(`No user: ${id}`);
+        if (!user) throw new NotFoundError(`No user: ${id}`);
 
-      return user;
+        return user;
+      }
+    } catch (err) {
+      throw err;
     }
-
   }
 
   /**
@@ -321,31 +343,37 @@ class User {
         return res;
       }
 
+      return result.rows[0];
     } catch (err) {
-      console.error("Error initializing super admin:", err);
+      throw err;
     }
   }
 
   /* Check if user is linked to any database and return the database ids */
   static async userHasDatabase(userId) {
-    const result = await db.query(
-      `SELECT database_id
+    try {
+      const result = await db.query(
+        `SELECT database_id
       FROM user_databases
       WHERE user_id = $1
       RETURNING database_id`,
-      [userId]
-    );
-    return result;
+        [userId]
+      );
+      return result.rows[0];
+    } catch (err) {
+      throw err;
+    }
   }
 
   /* ----- Invitation functions ----- */
 
   /* Activate user from invitation */
   static async activateFromInvitation(userId, password) {
-    const hashedPassword = await bcrypt.hash(password, BCRYPT_WORK_FACTOR);
+    try {
+      const hashedPassword = await bcrypt.hash(password, BCRYPT_WORK_FACTOR);
 
-    const result = await db.query(
-      `UPDATE users
+      const result = await db.query(
+        `UPDATE users
       SET password_hash = $1,
           is_active = true
       WHERE id = $2
@@ -356,22 +384,29 @@ class User {
        role,
        contact_id AS "contact",
        is_active AS "isActive"`,
-      [hashedPassword, userId]
-    );
+        [hashedPassword, userId]
+      );
 
-    return result.rows[0];
+      return result.rows[0];
+    } catch (err) {
+      throw err;
+    }
   }
 
   /* Activate Signup User */
   static async activateUser(userId) {
-    const result = await db.query(
-      `UPDATE users
+    try {
+      const result = await db.query(
+        `UPDATE users
       SET is_active = true
       WHERE id = $1
       RETURNING id, email, name, phone, role, contact_id AS "contact", is_active AS "isActive"`,
-      [userId]
-    );
-    return result.rows[0];
+        [userId]
+      );
+      return result.rows[0];
+    } catch (err) {
+      throw err;
+    }
   }
 }
 

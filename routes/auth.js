@@ -54,12 +54,11 @@ router.post("/token", async function (req, res, next) {
  * Authorization required: none
  */
 router.post("/register", async function (req, res, next) {
-  /* console.log("req.body: ", req.body.userData);
-  console.log("req.body.createdBy: ", req.body.createdBy);
-  console.log("req.body.createdByRole: ", req.body.createdByRole); */
+
+  const { createdBy, createdByRole, databaseId, userData } = req.body;
 
   const validator = jsonschema.validate(
-    req.body.userData,
+    userData,
     userRegisterSchema,
     { required: true }
   );
@@ -68,16 +67,26 @@ router.post("/register", async function (req, res, next) {
     throw new BadRequestError(errs);
   }
   try {
-    const newUser = await User.register({ ...req.body.userData });
+    const newUser = await User.register({ ...userData });
 
-    const userDb = await Database.linkUserToDatabase(
+    const userDb = await Database.linkNewUserToDatabase(
       {
         newUser,
-        databaseId: req.body.databaseId,
-        createdBy: req.body.createdBy,
-        createdByRole: req.body.createdByRole
+        databaseId,
+        createdBy,
+        createdByRole
       }
     );
+
+    /* if (createdByRole === "agent") {
+      await Database.linkUserToDatabase(
+        {
+          userId: createdBy,
+          databaseId: userDb.database_id,
+          role: 'agent'
+        }
+      );
+    } */
     const token = createToken(newUser);
     return res.status(201).json({ token });
   } catch (err) {

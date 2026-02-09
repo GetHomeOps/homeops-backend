@@ -6,6 +6,7 @@ const { ensureSuperAdmin } = require("../middleware/auth");
 const { BadRequestError } = require("../expressError");
 const Contact = require("../models/contact");
 const contactUpdateSchema = require("../schemas/contactUpdate.json");
+const { addPresignedUrlToItem, addPresignedUrlsToItems } = require("../helpers/presignedUrls");
 
 const router = express.Router();
 
@@ -18,7 +19,8 @@ const router = express.Router();
 router.get("/all", ensureSuperAdmin, async function (req, res, next) {
   try {
     const contacts = await Contact.getAll();
-    return res.json({ contacts });
+    const contactsWithUrls = await addPresignedUrlsToItems(contacts, "image", "image_url");
+    return res.json({ contacts: contactsWithUrls });
   } catch (err) {
     return next(err);
   }
@@ -34,7 +36,8 @@ router.get("/all", ensureSuperAdmin, async function (req, res, next) {
 router.get("/db/:databaseId", async function (req, res, next) {
   try {
     const contacts = await Contact.getByDatabaseId(req.params.databaseId);
-    return res.json({ contacts });
+    const contactsWithUrls = await addPresignedUrlsToItems(contacts, "image", "image_url");
+    return res.json({ contacts: contactsWithUrls });
   } catch (err) {
     return next(err);
   }
@@ -49,7 +52,8 @@ router.get("/db/:databaseId", async function (req, res, next) {
 router.get("/:id", ensureSuperAdmin, async function (req, res, next) {
   try {
     const contact = await Contact.get(req.params.id);
-    return res.json({ contact });
+    const contactWithUrl = await addPresignedUrlToItem(contact, "image", "image_url");
+    return res.json({ contact: contactWithUrl });
   } catch (err) {
     return next(err);
   }
@@ -79,6 +83,7 @@ router.post("/", async function (req, res, next) {
 
     // Create the contact
     const contact = await Contact.create(contactData);
+    const contactWithUrl = await addPresignedUrlToItem(contact, "image", "image_url");
 
     // If databaseId is provided, add contact to the database
     let contactDatabase = null;
@@ -89,7 +94,7 @@ router.post("/", async function (req, res, next) {
       });
     }
 
-    const response = { contact };
+    const response = { contact: contactWithUrl };
     if (contactDatabase) {
       response.contactDatabase = contactDatabase;
     }
@@ -110,7 +115,8 @@ router.post("/:id", async function (req, res, next) {
     }
 
     const contact = await Contact.create(req.body);
-    return res.status(201).json({ contact });
+    const contactWithUrl = await addPresignedUrlToItem(contact, "image", "image_url");
+    return res.status(201).json({ contact: contactWithUrl });
   }
   catch (err) {
     return next(err);
@@ -150,7 +156,8 @@ router.patch("/:id", async function (req, res, next) {
     }
 
     const contact = await Contact.update(req.params.id, req.body);
-    return res.json({ contact });
+    const contactWithUrl = await addPresignedUrlToItem(contact, "image", "image_url");
+    return res.json({ contact: contactWithUrl });
   } catch (err) {
     return next(err);
   }

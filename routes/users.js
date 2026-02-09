@@ -32,7 +32,6 @@ router.get("/", ensureSuperAdmin, async function (req, res, next) {
 * Authorization required: database admin or superAdmin
 **/
 router.get("/db/:databaseId", async function (req, res, next) {
-  console.log("req.params.databaseId", req.params.databaseId);
   const users = await User.getByDatabaseId(req.params.databaseId);
   return res.json({ users });
 });
@@ -45,7 +44,6 @@ router.get("/db/:databaseId", async function (req, res, next) {
 **/
 router.get("/agent/:agentId", async function (req, res, next) {
   const users = await User.getByAgentId(req.params.agentId);
-  console.log("****** Users are: ****** ", users);
   return res.json({ users });
 });
 
@@ -93,7 +91,6 @@ router.patch("/:id", async function (req, res, next) {
  *
  **/
 router.delete("/:id", async function (req, res, next) {
-  console.log("req.params.id", req.params.id);
   try {
     await User.remove(req.params.id);
     return res.json({ deleted: req.params.id });

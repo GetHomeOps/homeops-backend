@@ -1,0 +1,14 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "http://example.com/maintenanceRecordNew.json",
+  "type": "object",
+  "properties": {
+    "system_key": { "type": "string", "maxLength": 50 },
+    "completed_at": { "type": ["string", "null"], "format": "date-time" },
+    "next_service_date": { "type": ["string", "null"], "format": "date" },
+    "data": { "type": "object" },
+    "status": { "type": "string", "maxLength": 50 }
+  },
+  "required": ["system_key"],
+  "additionalProperties": false
+}

@@ -1,0 +1,15 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "http://example.com/systemNew.json",
+  "type": "object",
+  "properties": {
+    "id": {"type": "integer"},
+    "property_id": {"type": "integer"},
+    "system_key": {"type": "string", "maxLength": 50},
+    "data": {"type": "object"},
+    "next_service_date": {"type": ["string", "null"], "format": "date"},
+    "included": {"type": "boolean"}
+  },
+  "additionalProperties": false,
+  "required": ["property_id", "system_key"]
+}

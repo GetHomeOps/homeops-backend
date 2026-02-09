@@ -258,7 +258,7 @@ class Database {
           role,
           dbAdmin]
       );
-      console.log(`User ${userId} added to database ${databaseId} as ${role}`);
+
       return result.rows[0];
     } catch (err) {
       console.error("Error adding user to database:", err);
@@ -285,29 +285,59 @@ class Database {
     }
   }
 
-  /* Link user to database with data */
-  static async linkUserToDatabase(data) {
+  /* Link new user to database */
+  static async linkNewUserToDatabase(data) {
 
     const name = data.newUser.name;
     try {
       const database = await this.create({ name: name });
-      await this.addUserToDatabase({ userId: data.newUser.id, databaseId: database.id, role: 'admin' });
+      const userDb = await this.addUserToDatabase({ userId: data.newUser.id, databaseId: database.id, role: 'admin' });
 
       if (data.createdByRole === "agent") {
         const createdBy = data.createdBy;
 
         await this.linkAgentToDatabase({ userId: createdBy, databaseId: database.id });
-        return { success: true, message: "User linked to database successfully" };
       }
+      return userDb;
+
+    } catch (err) {
+      console.error("Error linking new user to database:", err);
+      throw err;
+    }
+  }
+
+  /* Link an existing user to a database */
+  static async linkUserToDatabase(data) {
+    console.log("data: ", data);
+    try {
+      const { userId, databaseId, role } = data;
+      await this.addUserToDatabase({ userId: userId, databaseId: databaseId, role: role });
+      return { success: true, message: "User linked to database successfully" };
     } catch (err) {
       console.error("Error linking user to database:", err);
       throw err;
     }
   }
 
+  /* Remove user from database */
+  static async removeUserFromDatabase(data) {
+    const { userId, databaseId } = data;
+    try {
+      const result = await db.query(
+        `DELETE FROM user_databases
+        WHERE user_id = $1 AND database_id = $2`,
+        [userId, databaseId]
+      );
+      console.log("User removed from database successfully");
+      return result.rows[0];
+    } catch (err) {
+      console.error("Error removing user from database:", err);
+      throw err;
+    }
+  }
+
   /* Link Agent to Database */
   static async linkAgentToDatabase(data) {
-    console.log("data: ", data);
     const { userId, databaseId } = data;
     const result = await db.query(
       `INSERT INTO agent_databases (

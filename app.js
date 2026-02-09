@@ -8,7 +8,11 @@ const authRoutes = require("./routes/auth");
 const usersRoutes = require("./routes/users");
 const databasesRoutes = require("./routes/databases");
 const contactsRoutes = require("./routes/contacts");
-
+const propertiesRoutes = require("./routes/properties");
+const systemsRoutes = require("./routes/systems");
+const maintenanceRecordsRoutes = require("./routes/maintenanceRecords");
+const documentsRoutes = require("./routes/documents");
+const propertyDocumentsRoutes = require("./routes/propertyDocuments");
 const app = express();
 
 // CORS MUST be configured before any other middleware to handle preflight requests
@@ -46,6 +50,11 @@ app.use("/auth", authRoutes);
 app.use("/users", usersRoutes);
 app.use("/databases", databasesRoutes);
 app.use("/contacts", contactsRoutes);
+app.use("/properties", propertiesRoutes);
+app.use("/systems", systemsRoutes);
+app.use("/maintenance", maintenanceRecordsRoutes);
+app.use("/documents", documentsRoutes);
+app.use("/propertyDocuments", propertyDocumentsRoutes);
 
 /** Handle 404 errors -- this matches everything */
 app.use(function (req, res, next) {
