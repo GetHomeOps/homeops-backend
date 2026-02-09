@@ -139,8 +139,9 @@ router.get("/team/:uid", async function (req, res, next) {
     }
     const property = await Property.get(uid);
     const property_users = await Property.getPropertyTeam(property.id);
+    const property_users_with_urls = await addPresignedUrlsToItems(property_users, "image", "image_url");
 
-    return res.json({ property_users });
+    return res.json({ property_users: property_users_with_urls });
   } catch (err) {
     return next(err);
   }

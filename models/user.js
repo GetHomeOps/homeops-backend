@@ -125,7 +125,8 @@ class User {
                phone,
                role,
                contact_id AS "contact",
-               is_active AS "isActive"
+               is_active AS "isActive",
+               image
         FROM users
         WHERE email=$1`,
         [email]
@@ -151,6 +152,7 @@ class User {
              u.phone,
              u.contact_id AS "contact",
              u.is_active AS "isActive",
+             u.image,
              ud.role
       FROM user_databases ud
       JOIN users u ON u.id = ud.user_id
@@ -174,6 +176,7 @@ class User {
              u.phone,
              u.contact_id AS "contact",
              u.is_active AS "isActive",
+             u.image,
              u.role::text AS "role"
       FROM users u
       WHERE u.id = $1
@@ -186,6 +189,7 @@ class User {
              u.phone,
              u.contact_id AS "contact",
              u.is_active AS "isActive",
+             u.image,
              u.role::text AS "role"
       FROM agent_databases ad
       JOIN user_databases ud ON ud.database_id = ad.database_id
@@ -215,6 +219,7 @@ class User {
                role,
                contact_id AS "contact",
                is_active AS "isActive",
+               image,
                created_at AS "createdAt",
                updated_at AS "updatedAt"
         FROM users`
@@ -246,7 +251,7 @@ class User {
      * Callers of this function must be certain they have validated inputs to this
      * or serious security risks are opened.
      */
-  static async update({ id, name, phone, contact }) {
+  static async update({ id, name, phone, contact, image }) {
     try {
       /*  if (password) {
          password = await bcrypt.hash(password, BCRYPT_WORK_FACTOR);
@@ -255,7 +260,8 @@ class User {
       const { setCols, values } = sqlForPartialUpdate({
         name,
         phone,
-        contact_id: contact
+        contact_id: contact,
+        image
       },
         {
           contact_id: "contact_id"
@@ -272,7 +278,8 @@ class User {
                 phone,
                 role,
                 contact_id AS "contact",
-                is_active AS "isActive"
+                is_active AS "isActive",
+                image
                 `;
       const result = await db.query(querySql, [...values, id]);
       const user = result.rows[0];

@@ -8,7 +8,7 @@ class MaintenanceRecord {
 
   /* Create a new maintenance record */
   static async create(maintenanceRecord) {
-    const { property_id, system_key, completed_at, next_service_date, data = {}, status = "pending" } = maintenanceRecord;
+    const { property_id, system_key, completed_at, next_service_date, data = {}, status = "pending", record_status } = maintenanceRecord;
     try {
       const result = await db.query(
         `INSERT INTO property_maintenance (
@@ -17,16 +17,18 @@ class MaintenanceRecord {
                   completed_at,
                   next_service_date,
                   data,
-                  status)
-        VALUES ($1, $2, $3, $4, $5, $6)
+                  status,
+                  record_status)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
         RETURNING id,
                   property_id,
                   system_key,
                   completed_at,
                   next_service_date,
                   data,
-                  status`,
-        [property_id, system_key, completed_at || null, next_service_date || null, JSON.stringify(data), status]
+                  status,
+                  record_status`,
+        [property_id, system_key, completed_at || null, next_service_date || null, JSON.stringify(data), status, record_status ?? null]
       );
       return result.rows[0];
     }
@@ -52,7 +54,8 @@ class MaintenanceRecord {
               completed_at,
               next_service_date,
               data,
-              status
+              status,
+              record_status
        FROM property_maintenance WHERE property_id = $1`,
       [propertyId]
     );
@@ -68,7 +71,8 @@ class MaintenanceRecord {
               completed_at,
               next_service_date,
               data,
-              status
+              status,
+              record_status
        FROM property_maintenance WHERE id = $1`,
       [recordId]
     );
@@ -79,7 +83,7 @@ class MaintenanceRecord {
 
   /* Update a maintenance record */
   static async update(recordId, maintenanceRecord) {
-    const { property_id, system_key, completed_at, next_service_date, data = {}, status } = maintenanceRecord;
+    const { property_id, system_key, completed_at, next_service_date, data = {}, status, record_status } = maintenanceRecord;
 
     const result = await db.query(
       `UPDATE property_maintenance
@@ -89,8 +93,9 @@ class MaintenanceRecord {
          next_service_date = $4,
          data = $5,
          status = $6,
+         record_status = $7,
          updated_at = NOW()
-     WHERE id = $7
+     WHERE id = $8
      RETURNING id,
                property_id,
                system_key,
@@ -98,6 +103,7 @@ class MaintenanceRecord {
                next_service_date,
                data,
                status,
+               record_status,
                created_at,
                updated_at`,
       [
@@ -107,6 +113,7 @@ class MaintenanceRecord {
         next_service_date || null,
         JSON.stringify(data),
         status || "pending",
+        record_status ?? null,
         recordId,
       ]
     );

@@ -13,6 +13,7 @@ CREATE TABLE users(
     role role DEFAULT 'admin',
     contact_id INTEGER DEFAULT 0,
     is_active BOOLEAN DEFAULT false,
+    image VARCHAR(500),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
@@ -192,6 +193,7 @@ CREATE TABLE property_systems (
 
 
 /* Property Maintenance Table */
+/* record_status: draft | user_completed | contractor_pending (null treated as draft by frontend) */
 CREATE TABLE property_maintenance (
   id SERIAL PRIMARY KEY,
   property_id INTEGER REFERENCES properties(id) ON DELETE CASCADE,
@@ -200,6 +202,7 @@ CREATE TABLE property_maintenance (
   next_service_date TIMESTAMPTZ,
   data JSONB DEFAULT '{}',
   status VARCHAR(50) DEFAULT 'pending',               -- 'pending', 'completed', etc.
+  record_status VARCHAR(50),                          -- draft | user_completed | contractor_pending
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );

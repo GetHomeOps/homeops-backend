@@ -9,6 +9,7 @@ const User = require("../models/user");
 const userUpdateSchema = require("../schemas/userUpdate.json");
 const UserInvitation = require("../models/userInvitation");
 const { createInvitationForUser, getInvitationForFrontend } = require("../services/invitationService");
+const { addPresignedUrlToItem, addPresignedUrlsToItems } = require("../helpers/presignedUrls");
 
 const router = express.Router();
 
@@ -21,7 +22,8 @@ const router = express.Router();
 **/
 router.get("/", ensureSuperAdmin, async function (req, res, next) {
   const users = await User.getAll();
-  return res.json({ users });
+  const usersWithUrls = await addPresignedUrlsToItems(users, "image", "image_url");
+  return res.json({ users: usersWithUrls });
 });
 
 
@@ -33,7 +35,8 @@ router.get("/", ensureSuperAdmin, async function (req, res, next) {
 **/
 router.get("/db/:databaseId", async function (req, res, next) {
   const users = await User.getByDatabaseId(req.params.databaseId);
-  return res.json({ users });
+  const usersWithUrls = await addPresignedUrlsToItems(users, "image", "image_url");
+  return res.json({ users: usersWithUrls });
 });
 
 /* GET /[agentId] => {users: [user, ...]}
@@ -44,7 +47,8 @@ router.get("/db/:databaseId", async function (req, res, next) {
 **/
 router.get("/agent/:agentId", async function (req, res, next) {
   const users = await User.getByAgentId(req.params.agentId);
-  return res.json({ users });
+  const usersWithUrls = await addPresignedUrlsToItems(users, "image", "image_url");
+  return res.json({ users: usersWithUrls });
 });
 
 /* GET /[email] =>{user}
@@ -76,7 +80,8 @@ router.patch("/:id", async function (req, res, next) {
     }
 
     const user = await User.update({ id: req.params.id, ...req.body });
-    return res.json({ user });
+    const userWithUrl = await addPresignedUrlToItem(user, "image", "image_url");
+    return res.json({ user: userWithUrl });
   } catch (err) {
     return next(err);
   }

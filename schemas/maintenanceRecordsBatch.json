@@ -14,7 +14,8 @@
           "completed_at": { "type": ["string", "null"], "format": "date-time" },
           "next_service_date": { "type": ["string", "null"], "format": "date" },
           "data": { "type": "object" },
-          "status": { "type": "string", "maxLength": 50 }
+          "status": { "type": "string", "maxLength": 50 },
+          "record_status": {"type": ["string", "null"], "enum": ["draft", "user_completed", "contractor_pending", null]}
         },
         "required": ["property_id", "system_key"],
         "additionalProperties": false

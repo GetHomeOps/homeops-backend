@@ -79,10 +79,10 @@ async function startServer() {
         return;
       }
 
-      const userDb = await Database.addUserToDatabase({ userId: user.id, databaseId: mainDb.id });
-      console.log("userDb (after adding user):", userDb); // Debugging output
-
-      if (userDb) {
+      const isLinked = await Database.isUserLinkedToDatabase(user.id, mainDb.id);
+      if (!isLinked) {
+        const userDb = await Database.addUserToDatabase({ userId: user.id, databaseId: mainDb.id });
+        console.log("userDb (after adding user):", userDb);
         console.log("User added to main database successfully.");
       }
     }

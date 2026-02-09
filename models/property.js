@@ -144,7 +144,7 @@ class Property {
   /* Get team for property: returns actual user records with their role on this property */
   static async getPropertyTeam(propertyId) {
     const result = await db.query(
-      `SELECT u.id, u.email, u.name, u.phone, u.role, u.is_active, u.contact_id,
+      `SELECT u.id, u.email, u.name, u.phone, u.role, u.is_active, u.contact_id, u.image,
               pu.role AS property_role
        FROM property_users pu
        JOIN users u ON u.id = pu.user_id
