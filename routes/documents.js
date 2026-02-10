@@ -65,6 +65,9 @@ router.post("/upload", ensureLoggedIn, upload.single("file"), async (req, res, n
       document: { key: s3Key, url },
     });
   } catch (err) {
+    if (process.env.NODE_ENV !== "test") {
+      console.error("[documents/upload]", err.message || err);
+    }
     return next(err);
   }
 });

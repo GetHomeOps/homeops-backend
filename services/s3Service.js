@@ -4,7 +4,10 @@ const { S3Client, PutObjectCommand, DeleteObjectCommand, GetObjectCommand } = re
 const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
 const { AWS_REGION, AWS_S3_BUCKET } = require("../config");
 
-const s3Client = new S3Client({ region: AWS_REGION });
+const s3Client = new S3Client({
+  region: AWS_REGION,
+  followRegionRedirects: true, // Follow 301 redirects when bucket is in a different region
+});
 
 /** Presigned URL expiration in seconds (5 minutes). */
 const PRESIGNED_EXPIRATION = 5 * 60;

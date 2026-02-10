@@ -17,6 +17,10 @@ DROP TABLE IF EXISTS contacts CASCADE;
 DROP TABLE IF EXISTS contacts_databases CASCADE;
 DROP TABLE IF EXISTS user_invitations CASCADE;
 DROP TABLE IF EXISTS properties CASCADE;
+DROP TABLE IF EXISTS property_maintenance CASCADE;
+DROP TABLE IF EXISTS property_systems CASCADE;
+DROP TABLE IF EXISTS property_users CASCADE;
+DROP TABLE IF EXISTS property_documents CASCADE;
 
 -- Drop existing types with CASCADE to avoid dependency issues
 DROP TYPE IF EXISTS role CASCADE;
