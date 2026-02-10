@@ -36,7 +36,9 @@ module.exports = {
   PORT,
   BCRYPT_WORK_FACTOR,
   getDatabaseUri,
-  // S3 config;
-  AWS_REGION: process.env.AWS_REGION || "us-east-2",
+  // S3 config - region must match bucket (fixes PermanentRedirect)
+  AWS_REGION: process.env.AWS_REGION || "us-east-1",
   AWS_S3_BUCKET: process.env.AWS_S3_BUCKET,
+  // Optional: explicit endpoint e.g. https://s3.eu-west-1.amazonaws.com
+  AWS_S3_ENDPOINT: process.env.AWS_S3_ENDPOINT,
 };
