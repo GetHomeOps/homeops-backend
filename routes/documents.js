@@ -5,6 +5,7 @@ const multer = require("multer");
 const { ensureLoggedIn } = require("../middleware/auth");
 const { BadRequestError } = require("../expressError");
 const { uploadFile, getPresignedUrl } = require("../services/s3Service");
+const { AWS_S3_BUCKET } = require("../config");
 const { ulid } = require("ulid");
 
 const router = express.Router();
@@ -47,6 +48,11 @@ const upload = multer({
  */
 router.post("/upload", ensureLoggedIn, upload.single("file"), async (req, res, next) => {
   try {
+    if (!AWS_S3_BUCKET) {
+      throw new BadRequestError(
+        "File upload is not configured. Set AWS_S3_BUCKET (and AWS credentials) in the server environment."
+      );
+    }
     if (!req.file) {
       throw new BadRequestError("No file provided");
     }
@@ -66,6 +72,14 @@ router.post("/upload", ensureLoggedIn, upload.single("file"), async (req, res, n
     });
   } catch (err) {
     if (process.env.NODE_ENV !== "test") {
+      if (err.name === "AccessDenied" || err.Code === "AccessDenied") {
+        console.error(
+          "[documents/upload] S3 Access Denied. Ensure the server's AWS identity (env or IAM role) has s3:PutObject on bucket:",
+          AWS_S3_BUCKET,
+          "Region:",
+          process.env.AWS_REGION || "us-east-2"
+        );
+      }
       console.error("[documents/upload]", err.message || err);
     }
     return next(err);

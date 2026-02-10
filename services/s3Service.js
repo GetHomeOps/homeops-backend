@@ -2,15 +2,12 @@
 
 const { S3Client, PutObjectCommand, DeleteObjectCommand, GetObjectCommand } = require("@aws-sdk/client-s3");
 const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
-const { AWS_REGION, AWS_S3_BUCKET, AWS_S3_ENDPOINT } = require("../config");
+const { AWS_REGION, AWS_S3_BUCKET } = require("../config");
 
-function createS3Client(region = AWS_REGION, endpoint = AWS_S3_ENDPOINT) {
-  const config = { region };
-  if (endpoint) config.endpoint = endpoint;
-  return new S3Client(config);
-}
-
-const s3Client = createS3Client();
+const s3Client = new S3Client({
+  region: AWS_REGION,
+  followRegionRedirects: true, // Follow 301 redirects when bucket is in a different region
+});
 
 /** Presigned URL expiration in seconds (5 minutes). */
 const PRESIGNED_EXPIRATION = 5 * 60;
@@ -22,28 +19,6 @@ const PRESIGNED_EXPIRATION = 5 * 60;
  * @param {string} contentType - MIME type (e.g., application/pdf, image/jpeg)
  * @returns {Promise<{ key: string, url: string }>}
  */
-function getRedirectEndpointFromError(err) {
-  // Check if error has Endpoint directly (SDK may deserialize XML onto error)
-  const directHost = err.Endpoint || err.endpoint;
-  if (directHost && typeof directHost === "string") {
-    const host = directHost.trim();
-    const regionMatch = host.match(/\.s3[.-]([a-z0-9-]+)\.amazonaws\.com$/i);
-    if (regionMatch) return `https://s3.${regionMatch[1]}.amazonaws.com`;
-    if (host.includes("amazonaws.com")) return `https://${host.replace(/^[^.]+\./, "s3.")}`;
-  }
-  // Parse from XML in response body
-  const rawBody = err.$response?.body;
-  const body = typeof rawBody === "string" ? rawBody : (Buffer.isBuffer(rawBody) ? rawBody.toString() : rawBody?.toString?.() ?? null);
-  if (!body || typeof body !== "string") return null;
-  const match = body.match(/<Endpoint>([^<]+)<\/Endpoint>/);
-  if (!match) return null;
-  const host = match[1].trim();
-  const regionMatch = host.match(/\.s3[.-]([a-z0-9-]+)\.amazonaws\.com$/i);
-  if (regionMatch) return `https://s3.${regionMatch[1]}.amazonaws.com`;
-  if (host.includes("amazonaws.com")) return `https://${host.replace(/^[^.]+\./, "s3.")}`;
-  return null;
-}
-
 async function uploadFile(fileBuffer, key, contentType) {
   const command = new PutObjectCommand({
     Bucket: AWS_S3_BUCKET,
@@ -52,30 +27,10 @@ async function uploadFile(fileBuffer, key, contentType) {
     ContentType: contentType,
   });
 
-  let client = s3Client;
-  let lastError;
+  await s3Client.send(command);
 
-  let usedRegion = AWS_REGION;
-  for (let attempt = 0; attempt < 2; attempt++) {
-    try {
-      await client.send(command);
-      const url = `https://${AWS_S3_BUCKET}.s3.${usedRegion}.amazonaws.com/${key}`;
-      return { key, url };
-    } catch (err) {
-      lastError = err;
-      if (err.name === "PermanentRedirect" && attempt === 0) {
-        const endpoint = getRedirectEndpointFromError(err);
-        if (endpoint) {
-          const regionMatch = endpoint.match(/s3\.([a-z0-9-]+)\.amazonaws/i);
-          usedRegion = regionMatch ? regionMatch[1] : AWS_REGION;
-          client = createS3Client(usedRegion, endpoint);
-          continue;
-        }
-      }
-      throw err;
-    }
-  }
-  throw lastError;
+  const url = `https://${AWS_S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${key}`;
+  return { key, url };
 }
 
 /**
@@ -86,24 +41,7 @@ async function deleteFile(key) {
     Bucket: AWS_S3_BUCKET,
     Key: key,
   });
-  let client = s3Client;
-  for (let attempt = 0; attempt < 2; attempt++) {
-    try {
-      await client.send(command);
-      return;
-    } catch (err) {
-      if (err.name === "PermanentRedirect" && attempt === 0) {
-        const endpoint = getRedirectEndpointFromError(err);
-        if (endpoint) {
-          const regionMatch = endpoint.match(/s3\.([a-z0-9-]+)\.amazonaws/i);
-          const region = regionMatch ? regionMatch[1] : AWS_REGION;
-          client = createS3Client(region, endpoint);
-          continue;
-        }
-      }
-      throw err;
-    }
-  }
+  await s3Client.send(command);
 }
 
 /**
