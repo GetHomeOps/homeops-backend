@@ -3,8 +3,17 @@
 /* Routes for users */
 const express = require("express");
 const jsonschema = require("jsonschema");
-const { ensureCorrectUser, ensureSuperAdmin, ensureAdminOrSuperAdmin, ensureDatabaseUser } = require("../middleware/auth");
-const { BadRequestError } = require("../expressError");
+const {
+  ensureCorrectUser,
+  ensureSuperAdmin,
+  ensureAdminOrSuperAdmin,
+  ensureDatabaseUser,
+  ensureLoggedIn,
+  ensureUserCanAccessDatabaseByParam,
+  ensureAgentOrSelf,
+  ensureCanViewUser,
+} = require("../middleware/auth");
+const { BadRequestError, UnauthorizedError } = require("../expressError");
 const User = require("../models/user");
 const userUpdateSchema = require("../schemas/userUpdate.json");
 const UserInvitation = require("../models/userInvitation");
@@ -18,9 +27,9 @@ const router = express.Router();
 *
 * Returns {email, fullName, role}
 *
-* Authorization required: superAdmin
+* Authorization required: super_admin only
 **/
-router.get("/", ensureSuperAdmin, async function (req, res, next) {
+router.get("/", ensureLoggedIn, ensureSuperAdmin, async function (req, res, next) {
   const users = await User.getAll();
   const usersWithUrls = await addPresignedUrlsToItems(users, "image", "image_url");
   return res.json({ users: usersWithUrls });
@@ -31,9 +40,9 @@ router.get("/", ensureSuperAdmin, async function (req, res, next) {
 *
 * Returns {email, fullName, role}
 *
-* Authorization required: database admin or superAdmin
+* Authorization required: logged in, and user must be linked to this database
 **/
-router.get("/db/:databaseId", async function (req, res, next) {
+router.get("/db/:databaseId", ensureLoggedIn, ensureUserCanAccessDatabaseByParam("databaseId"), async function (req, res, next) {
   const users = await User.getByDatabaseId(req.params.databaseId);
   const usersWithUrls = await addPresignedUrlsToItems(users, "image", "image_url");
   return res.json({ users: usersWithUrls });
@@ -43,9 +52,9 @@ router.get("/db/:databaseId", async function (req, res, next) {
 *
 * Returns {email, fullName, role}
 *
-* Authorization required: superAdmin or correct user
+* Authorization required: logged in; super_admin or the agent themselves
 **/
-router.get("/agent/:agentId", async function (req, res, next) {
+router.get("/agent/:agentId", ensureLoggedIn, ensureAgentOrSelf("agentId"), async function (req, res, next) {
   const users = await User.getByAgentId(req.params.agentId);
   const usersWithUrls = await addPresignedUrlsToItems(users, "image", "image_url");
   return res.json({ users: usersWithUrls });
@@ -55,9 +64,9 @@ router.get("/agent/:agentId", async function (req, res, next) {
 *
 * Returns {email, fullName, role}
 *
-* Authorization required: current user
+* Authorization required: logged in; super_admin or user must share a database with requested user
 **/
-router.get("/:email", async function (req, res, next) {
+router.get("/:email", ensureLoggedIn, ensureCanViewUser("email"), async function (req, res, next) {
   const user = await User.get(req.params.email);
   return res.json({ user });
 });

@@ -15,6 +15,43 @@ const { acceptInvitation, validateInvitationToken } = require("../services/invit
 const UserInvitation = require("../models/userInvitation");
 const Database = require("../models/database");
 const dbService = require("../services/databaseService");
+const Subscription = require("../models/subscription");
+const SubscriptionProduct = require("../models/subscriptionProduct");
+const PlatformEngagement = require("../models/platformEngagement");
+
+/**
+ * Helper: auto-create a "basic" subscription for a newly registered user.
+ *
+ * Looks up the "basic" subscription product by name; if it exists, the
+ * subscription_product_id is set accordingly and subscription_type mirrors
+ * the product name. Falls back gracefully if the product row is missing.
+ *
+ * Dates: start_date = today, end_date = today + 1 month.
+ */
+async function createDefaultSubscription(userId) {
+  try {
+    const today = new Date();
+    const endDate = new Date(today);
+    endDate.setMonth(endDate.getMonth() + 1);
+
+    const formatDate = (d) => d.toISOString().split("T")[0];
+
+    // Try to find the "basic" product
+    const basicProduct = await SubscriptionProduct.getByName("basic");
+
+    await Subscription.create({
+      userId,
+      subscriptionProductId: basicProduct ? basicProduct.id : null,
+      subscriptionType: basicProduct ? basicProduct.name : "basic",
+      subscriptionStatus: "active",
+      subscriptionStartDate: formatDate(today),
+      subscriptionEndDate: formatDate(endDate),
+    });
+  } catch (err) {
+    // Log but don't block user creation if subscription creation fails
+    console.error("Warning: failed to auto-create subscription for user", userId, err.message);
+  }
+}
 
 /** POST /auth/token:  { email, password } => { token }
  *
@@ -37,6 +74,11 @@ router.post("/token", async function (req, res, next) {
     const { email, password } = req.body;
     const user = await User.authenticate(email, password);
     const token = createToken(user);
+    try {
+      await PlatformEngagement.logEvent({ userId: user.id, eventType: "login", eventData: {} });
+    } catch (logErr) {
+      // Don't block login if engagement logging fails
+    }
     return res.json({ token });
   } catch (err) {
     return next(err);
@@ -87,6 +129,10 @@ router.post("/register", async function (req, res, next) {
         }
       );
     } */
+
+    // Auto-create a default "basic" subscription for the new user
+    await createDefaultSubscription(newUser.id);
+
     const token = createToken(newUser);
     return res.status(201).json({ token });
   } catch (err) {

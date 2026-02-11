@@ -14,6 +14,7 @@ require('dotenv').config();
 
 const User = require('./models/user');
 const Database = require('./models/database');
+const SubscriptionProduct = require('./models/subscriptionProduct');
 const fs = require('fs');
 
 const app = require('./app.js');
@@ -86,6 +87,9 @@ async function startServer() {
         console.log("User added to main database successfully.");
       }
     }
+
+    // Seed default subscription products (free, basic, professional, enterprise)
+    await SubscriptionProduct.initializeDefaultProducts();
 
     /*     app.listen(PORT, () => {
           console.log(`Backend running on http://localhost:${PORT}`);

@@ -2,7 +2,7 @@
 
 const express = require("express");
 const jsonschema = require("jsonschema");
-const { ensureSuperAdmin } = require("../middleware/auth");
+const { ensureLoggedIn, ensurePropertyAccess } = require("../middleware/auth");
 const { BadRequestError } = require("../expressError");
 const MaintenanceRecord = require("../models/maintenanceRecord");
 const maintenanceRecordNewSchema = require("../schemas/maintenanceRecordNew.json");
@@ -10,12 +10,24 @@ const maintenanceRecordsBatchSchema = require("../schemas/maintenanceRecordsBatc
 const maintenanceRecordUpdateSchema = require("../schemas/maintenanceRecord.json");
 const router = express.Router();
 
+/** Set req.params.propertyId from maintenance record id so ensurePropertyAccess can run. */
+async function loadPropertyIdFromRecord(req, res, next) {
+  try {
+    const record = await MaintenanceRecord.getByRecordId(req.params.recordId);
+    req.params.propertyId = record.property_id;
+    return next();
+  } catch (err) {
+    return next(err);
+  }
+}
+
 /* POST / => { maintenanceRecords }
  *
  * Creates multiple maintenance records. Body: { maintenanceRecords: [{ property_id, system_key, ... }, ...] }
  * Returns all created records.
+ * super_admin: full access. Others: must be on homeops team (property_users) for the property.
  **/
-router.post("/:PropertyId", async function (req, res, next) {
+router.post("/:PropertyId", ensureLoggedIn, ensurePropertyAccess({ param: "PropertyId" }), async function (req, res, next) {
   try {
     const validator = jsonschema.validate(req.body, maintenanceRecordsBatchSchema);
     if (!validator.valid) {
@@ -33,8 +45,9 @@ router.post("/:PropertyId", async function (req, res, next) {
 /* POST /:PropertyId => { maintenanceRecord }
  *
  * Creates a single maintenance record for the given property.
+ * super_admin: full access. Others: must be on homeops team for the property.
  **/
-router.post("/record/:PropertyId", async function (req, res, next) {
+router.post("/record/:PropertyId", ensureLoggedIn, ensurePropertyAccess({ param: "PropertyId" }), async function (req, res, next) {
   try {
     const validator = jsonschema.validate(req.body, maintenanceRecordNewSchema);
     if (!validator.valid) {
@@ -52,8 +65,10 @@ router.post("/record/:PropertyId", async function (req, res, next) {
   }
 });
 
-/* GET /:PropertyId => { maintenanceRecords } */
-router.get("/:PropertyId", async function (req, res, next) {
+/* GET /:PropertyId => { maintenanceRecords }
+ * super_admin: full access. Others: must be on homeops team for the property.
+ */
+router.get("/:PropertyId", ensureLoggedIn, ensurePropertyAccess({ param: "PropertyId" }), async function (req, res, next) {
   try {
     const { PropertyId } = req.params;
     const maintenanceRecords = await MaintenanceRecord.getByPropertyId(PropertyId);
@@ -67,8 +82,9 @@ router.get("/:PropertyId", async function (req, res, next) {
  *
  * Updates a maintenance record by id.
  * Body: { property_id, system_key, completed_at, next_service_date, data, status }
+ * super_admin: full access. Others: must be on homeops team for the record's property.
  **/
-router.patch("/:recordId", async function (req, res, next) {
+router.patch("/:recordId", ensureLoggedIn, loadPropertyIdFromRecord, ensurePropertyAccess({ param: "propertyId" }), async function (req, res, next) {
   try {
     const { recordId } = req.params;
     const validator = jsonschema.validate(req.body, maintenanceRecordUpdateSchema);
@@ -86,8 +102,9 @@ router.patch("/:recordId", async function (req, res, next) {
 /* DELETE /:recordId => { deleted }
  *
  * Deletes a maintenance record by id.
+ * super_admin: full access. Others: must be on homeops team for the record's property.
  **/
-router.delete("/:recordId", async function (req, res, next) {
+router.delete("/:recordId", ensureLoggedIn, loadPropertyIdFromRecord, ensurePropertyAccess({ param: "propertyId" }), async function (req, res, next) {
   try {
     const { recordId } = req.params;
     await MaintenanceRecord.delete(recordId);

@@ -219,3 +219,82 @@ CREATE TABLE property_documents (
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Subscription products table (must exist before subscriptions)
+CREATE TABLE subscription_products (
+  id SERIAL PRIMARY KEY,
+  name VARCHAR(255) NOT NULL UNIQUE,
+  description TEXT,
+  price DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Subscriptions Table
+CREATE TABLE subscriptions (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+  subscription_product_id INTEGER NOT NULL REFERENCES subscription_products(id) ON DELETE RESTRICT,
+  subscription_type VARCHAR(255) NOT NULL,
+  subscription_status VARCHAR(255) NOT NULL,
+  subscription_start_date DATE NOT NULL,
+  subscription_end_date DATE NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Platform engagement events table
+CREATE TABLE platform_engagement_events (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+  event_type VARCHAR(255) NOT NULL,
+  event_data JSONB DEFAULT '{}',
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_engagement_user_id ON platform_engagement_events(user_id);
+CREATE INDEX idx_engagement_event_type ON platform_engagement_events(event_type);
+CREATE INDEX idx_engagement_created_at ON platform_engagement_events(created_at);
+CREATE INDEX idx_subscriptions_user_id ON subscriptions(user_id);
+CREATE INDEX idx_subscriptions_product_id ON subscriptions(subscription_product_id);
+CREATE INDEX idx_subscriptions_status ON subscriptions(subscription_status);
+CREATE INDEX idx_subscriptions_type ON subscriptions(subscription_type);
+
+-- Daily Platform Metrics View
+-- Aggregates daily snapshots of platform-wide counts over last 90 days.
+CREATE VIEW daily_platform_metrics AS
+SELECT
+  d.date,
+  (SELECT COUNT(*)::int FROM users      u WHERE u.created_at::date <= d.date)  AS total_users,
+  (SELECT COUNT(*)::int FROM databases  db WHERE db.created_at::date <= d.date) AS total_databases,
+  (SELECT COUNT(*)::int FROM properties p WHERE p.created_at::date <= d.date)  AS total_properties,
+  (SELECT COUNT(*)::int FROM users      u WHERE u.created_at::date = d.date)  AS new_users,
+  (SELECT COUNT(*)::int FROM databases  db WHERE db.created_at::date = d.date) AS new_databases,
+  (SELECT COUNT(*)::int FROM properties p WHERE p.created_at::date = d.date)  AS new_properties
+FROM (
+  SELECT generate_series(
+    (CURRENT_DATE - INTERVAL '90 days')::date,
+    CURRENT_DATE,
+    '1 day'::interval
+  )::date AS date
+) d;
+
+-- Database analytics view
+-- Per-database rollup joining through junction tables.
+CREATE VIEW database_analytics AS
+SELECT
+  db.id                                       AS database_id,
+  db.name                                     AS database_name,
+  COUNT(DISTINCT pu_props.id)::int            AS total_properties,
+  COUNT(DISTINCT ud.user_id)::int             AS total_users,
+  COUNT(DISTINCT ps.system_key)::int          AS total_systems,
+  COUNT(DISTINCT pm.id)::int                  AS total_maintenance_records,
+  ROUND(AVG(pu_props.hps_score))::int         AS avg_hps_score,
+  MAX(GREATEST(pu_props.updated_at, db.updated_at)) AS last_active_at
+FROM databases db
+LEFT JOIN user_databases ud ON ud.database_id = db.id
+LEFT JOIN property_users pu ON pu.user_id = ud.user_id
+LEFT JOIN properties pu_props ON pu_props.id = pu.property_id
+LEFT JOIN property_systems ps ON ps.property_id = pu_props.id
+LEFT JOIN property_maintenance pm ON pm.property_id = pu_props.id
+GROUP BY db.id, db.name;

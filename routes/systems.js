@@ -3,7 +3,7 @@
 /* Routes for systems */
 const express = require("express");
 const jsonschema = require("jsonschema");
-const { ensureCorrectUser, ensureSuperAdmin, ensureAdminOrSuperAdmin, ensureDatabaseUser } = require("../middleware/auth");
+const { ensureLoggedIn, ensurePropertyAccess } = require("../middleware/auth");
 const { BadRequestError } = require("../expressError");
 const System = require("../models/system");
 const systemNewSchema = require("../schemas/systemNew.json");
@@ -14,10 +14,9 @@ const router = express.Router();
 /* POST [propertyId]   / => { system }
 *
 * Creates a new system for a property.
-*
-* Authorization required: DatabaseUser
+* super_admin: full access. Others: must be on homeops team (property_users) for the property.
 **/
-router.post("/:propertyId", async function (req, res, next) {
+router.post("/:propertyId", ensureLoggedIn, ensurePropertyAccess({ param: "propertyId" }), async function (req, res, next) {
   try {
     const validator = jsonschema.validate(req.body, systemNewSchema);
     if (!validator.valid) {
@@ -34,10 +33,9 @@ router.post("/:propertyId", async function (req, res, next) {
 /* GET [propertyId] / => { systems }
 *
 * Returns all systems for a property.
-*
-* Authorization required: DatabaseUser
+* super_admin: full access. Others: must be on homeops team for the property.
 **/
-router.get("/:propertyId", async function (req, res, next) {
+router.get("/:propertyId", ensureLoggedIn, ensurePropertyAccess({ param: "propertyId" }), async function (req, res, next) {
   try {
     const systems = await System.get(req.params.propertyId);
     return res.json({ systems });
@@ -49,10 +47,9 @@ router.get("/:propertyId", async function (req, res, next) {
 /* PATCH [propertyId] { system } => { system }
 *
 * Updates a system for a property.
-*
-* Authorization required: DatabaseUser
+* super_admin: full access. Others: must be on homeops team for the property.
 **/
-router.patch("/:propertyId", async function (req, res, next) {
+router.patch("/:propertyId", ensureLoggedIn, ensurePropertyAccess({ param: "propertyId" }), async function (req, res, next) {
   try {
     const { propertyId } = req.params;
     if (!propertyId || propertyId === "undefined" || propertyId === "null") {

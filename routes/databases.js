@@ -2,50 +2,58 @@
 
 const express = require("express");
 const jsonschema = require("jsonschema");
-const { ensureSuperAdmin, ensureAdminOrSuperAdmin } = require("../middleware/auth");
+const { ensureLoggedIn, ensureSuperAdmin, ensureAdminOrSuperAdmin } = require("../middleware/auth");
 const { BadRequestError } = require("../expressError");
 const Database = require("../models/database");
 const databaseUpdateSchema = require("../schemas/databaseUpdate.json");
 
 const router = express.Router();
 
-/* GET ALL databases => {databases: [database, ...]}
+/* GET ALL databases => { databases: [database, ...] }
  *
  * Returns [{ id, name, url, createdAt, updatedAt }]
  *
- * Authorization required: superAdmin
- **/
-router.get("/", async function (req, res, next) {
-  const databases = await Database.getAll();
-  return res.json({ databases });
+ * Authorization required: super_admin only
+ */
+router.get("/", ensureSuperAdmin, async function (req, res, next) {
+  try {
+    const databases = await Database.getAll();
+    return res.json({ databases });
+  } catch (err) {
+    return next(err);
+  }
 });
 
-/** GET /user/[userId] => { databases: [database, ...] }
+/** GET /user/:userId => { databases: [database, ...] }
  *
- * Returns [{ id, name, url, createdAt, updatedAt }]
+ * Returns databases linked to the given user.
  *
- * Authorization required: superAdmin or correct user
- **/
-router.get("/user/:userId", async function (req, res, next) {
+ * Authorization required: logged in
+ */
+router.get("/user/:userId", ensureLoggedIn, async function (req, res, next) {
   try {
     const databases = await Database.getUserDatabases(req.params.userId);
     return res.json({ databases });
-  } catch (error) {
-    return next(error);
+  } catch (err) {
+    return next(err);
   }
 });
 
 
 
-/* GET /[id] => {database}
+/* GET /:id => { database }
  *
  * Returns { id, name, url, createdAt, updatedAt }
  *
- * Authorization required: correct user or SuperAdmin
- **/
-router.get("/:id", async function (req, res, next) {
-  const database = await Database.get(req.params.id);
-  return res.json({ database });
+ * Authorization required: logged in
+ */
+router.get("/:id", ensureLoggedIn, async function (req, res, next) {
+  try {
+    const database = await Database.get(req.params.id);
+    return res.json({ database });
+  } catch (err) {
+    return next(err);
+  }
 });
 
 /** POST / { database } => { database }
@@ -55,10 +63,9 @@ router.get("/:id", async function (req, res, next) {
  *
  * Returns { id, name, url, createdAt, updatedAt }
  *
- * Authorization required: superAdmin
- **/
-router.post("/", async function (req, res, next) {
-  console.log("req.body: ", req);
+ * Authorization required: logged in
+ */
+router.post("/", ensureLoggedIn, async function (req, res, next) {
   try {
     const validator = jsonschema.validate(req.body, databaseUpdateSchema);
     if (!validator.valid) {
@@ -80,44 +87,56 @@ router.post("/", async function (req, res, next) {
  *
  * Returns { id, userId, databaseId, createdAt, updatedAt }
  *
- * Authorization required: database admin or super admin
- **/
-router.post("/user_databases", async function (req, res, next) {
-  const userDatabase = await Database.addUserToDatabase(req.body);
-  return res.status(201).json({ userDatabase });
+ * Authorization required: admin or super_admin
+ */
+router.post("/user_databases", ensureAdminOrSuperAdmin, async function (req, res, next) {
+  try {
+    const userDatabase = await Database.addUserToDatabase(req.body);
+    return res.status(201).json({ userDatabase });
+  } catch (err) {
+    return next(err);
+  }
 });
 
-/** PATCH /[id] { database } => { database }
+/** PATCH /:id { database } => { database }
  *
  * Data can include:
  *   { name, url }
  *
  * Returns { id, name, url, createdAt, updatedAt }
  *
- * Authorization required: superAdmin or correct user
- **/
-router.patch("/:id", async function (req, res, next) {
-  const validator = jsonschema.validate(req.body, databaseUpdateSchema);
-  if (!validator.valid) {
-    const errs = validator.errors.map(e => e.stack);
-    throw new BadRequestError(errs);
-  }
+ * Authorization required: logged in
+ */
+router.patch("/:id", ensureLoggedIn, async function (req, res, next) {
+  try {
+    const validator = jsonschema.validate(req.body, databaseUpdateSchema);
+    if (!validator.valid) {
+      const errs = validator.errors.map(e => e.stack);
+      throw new BadRequestError(errs);
+    }
 
-  const database = await Database.update(req.params.id, req.body);
-  return res.json({ database });
+    const database = await Database.update(req.params.id, req.body);
+    return res.json({ database });
+  } catch (err) {
+    return next(err);
+  }
 });
 
-/** DELETE /[id]
+/** DELETE /:id
  *
  * Deletes the database identified by the given ID.
  *
  * Returns { deleted: id }
  *
- * Authorization required: superAdmin or correct user
- **/
-router.delete("/:id", async function (req, res, next) {
-  await Database.remove(req.params.id);
-  return res.json({ deleted: req.params.id });
+ * Authorization required: logged in
+ */
+router.delete("/:id", ensureLoggedIn, async function (req, res, next) {
+  try {
+    await Database.remove(req.params.id);
+    return res.json({ deleted: req.params.id });
+  } catch (err) {
+    return next(err);
+  }
 });
 
 module.exports = router;

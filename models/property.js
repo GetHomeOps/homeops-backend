@@ -80,18 +80,13 @@ class Property {
     return result.rows[0];
   }
 
-  /* Add user to property */
+  /* Add user to property (upsert: update role if already exists) */
   static async addUserToProperty({ property_id, user_id, role }) {
     const result = await db.query(
-      `INSERT INTO property_users (
-           property_id,
-           user_id,
-           role)
+      `INSERT INTO property_users (property_id, user_id, role)
        VALUES ($1, $2, $3)
-       RETURNING
-        property_id,
-        user_id,
-        role`,
+       ON CONFLICT (property_id, user_id) DO UPDATE SET role = EXCLUDED.role, updated_at = NOW()
+       RETURNING property_id, user_id, role`,
       [property_id, user_id, role]
     );
     return result.rows[0];

@@ -13,6 +13,10 @@ const systemsRoutes = require("./routes/systems");
 const maintenanceRecordsRoutes = require("./routes/maintenanceRecords");
 const documentsRoutes = require("./routes/documents");
 const propertyDocumentsRoutes = require("./routes/propertyDocuments");
+const subscriptionsRoutes = require("./routes/subscriptions");
+const subscriptionProductsRoutes = require("./routes/subscriptionProducts");
+const platformEngagementRoutes = require("./routes/platformEngagement");
+const platformAnalyticsRoutes = require("./routes/platformAnalytics");
 const app = express();
 
 // CORS MUST be configured before any other middleware to handle preflight requests
@@ -55,6 +59,10 @@ app.use("/systems", systemsRoutes);
 app.use("/maintenance", maintenanceRecordsRoutes);
 app.use("/documents", documentsRoutes);
 app.use("/propertyDocuments", propertyDocumentsRoutes);
+app.use("/subscriptions", subscriptionsRoutes);
+app.use("/subscription-products", subscriptionProductsRoutes);
+app.use("/engagement", platformEngagementRoutes);
+app.use("/analytics", platformAnalyticsRoutes);
 
 /** Handle 404 errors -- this matches everything */
 app.use(function (req, res, next) {
