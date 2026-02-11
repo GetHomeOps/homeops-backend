@@ -21,6 +21,12 @@ DROP TABLE IF EXISTS property_maintenance CASCADE;
 DROP TABLE IF EXISTS property_systems CASCADE;
 DROP TABLE IF EXISTS property_users CASCADE;
 DROP TABLE IF EXISTS property_documents CASCADE;
+DROP TABLE IF EXISTS subscription_products CASCADE;
+DROP TABLE IF EXISTS subscriptions CASCADE;
+DROP TABLE IF EXISTS platform_engagement_events CASCADE;
+DROP TABLE IF EXISTS daily_platform_metrics CASCADE;
+DROP TABLE IF EXISTS database_analytics CASCADE;
+
 
 -- Drop existing types with CASCADE to avoid dependency issues
 DROP TYPE IF EXISTS role CASCADE;
