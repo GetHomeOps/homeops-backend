@@ -26,12 +26,24 @@ DROP TABLE IF EXISTS subscriptions CASCADE;
 DROP TABLE IF EXISTS platform_engagement_events CASCADE;
 DROP TABLE IF EXISTS daily_platform_metrics CASCADE;
 DROP TABLE IF EXISTS database_analytics CASCADE;
+DROP VIEW IF EXISTS daily_platform_metrics CASCADE;
+DROP VIEW IF EXISTS database_analytics CASCADE;
+DROP VIEW IF EXISTS platform_metrics_daily CASCADE;
+DROP VIEW IF EXISTS platform_engagement_events CASCADE;
+DROP VIEW IF EXISTS daily_platform_metrics CASCADE;
+DROP VIEW IF EXISTS database_analytics CASCADE;
 
 
 -- Drop existing types with CASCADE to avoid dependency issues
 DROP TYPE IF EXISTS role CASCADE;
 DROP TYPE IF EXISTS db_role CASCADE;
 DROP TYPE IF EXISTS contact_type CASCADE;
+DROP TYPE IF EXISTS subscription_type CASCADE;
+DROP TYPE IF EXISTS subscription_status CASCADE;
+DROP TYPE IF EXISTS platform_engagement_event_type CASCADE;
+DROP TYPE IF EXISTS daily_platform_metric_type CASCADE;
+DROP TYPE IF EXISTS database_analytics_type CASCADE;
+
 
 -- Import the schema
 \i pos-schema.sql

@@ -169,14 +169,19 @@ router.post("/confirm", async function (req, res, next) {
       password
     );
 
-    const database = await Database.create({ name });
+    const userId = result.id;
+    const existingDbs = await Database.getUserDatabases(userId);
+    // Only create a database if the user has none (e.g. invite-to-join flow).
+    // Users created via /register already have a database from linkNewUserToDatabase.
+    if (!existingDbs || existingDbs.length === 0) {
+      const database = await Database.create({ name });
+      await Database.addUserToDatabase({
+        userId,
+        databaseId: database.id,
+        role: 'admin'
+      });
+    }
 
-    /* // 4. Link user to database
-    await Database.addUserToDatabase({
-      userId: result.id,
-      databaseId: database.id,
-      role: 'admin'
-    }); */
     return res.json({
       success: true,
       message: "Account activated successfully"
