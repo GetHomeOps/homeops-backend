@@ -1,5 +1,14 @@
 "use strict";
 
+/**
+ * Properties Helper
+ *
+ * Generates unique passport IDs for properties. Format: STATE-ZIP-NNNNN
+ * (e.g., TX-78701-38472). Used when creating properties without a passport_id.
+ *
+ * Exports: generatePassportId
+ */
+
 const crypto = require("crypto");
 
 /**

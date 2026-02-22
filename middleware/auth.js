@@ -1,121 +1,66 @@
 "use strict";
 
-/** Convenience middleware to handle common auth cases in routes. */
+/**
+ * Authentication & Authorization Middleware
+ *
+ * Provides JWT verification and role/resource-based access control.
+ *
+ * Middleware:
+ * - authenticateJWT: Verify Bearer token, set res.locals.user (optional)
+ * - ensureLoggedIn: Require authenticated user
+ * - ensureSuperAdmin: Require super_admin role
+ * - ensurePlatformAdmin: Require super_admin or admin
+ * - ensureAdminOrSuperAdmin: Require super_admin, admin, or agent
+ * - ensureCorrectUser: Require current user matches params.email
+ * - ensurePropertyAccess: Require property_users membership or admin
+ * - ensurePropertyOwner: Require owner role on property
+ * - ensureUserCanAccessAccountByParam: Require account_users membership
+ * - ensureAgentOrSelf: Require agent or self for agent-scoped routes
+ * - ensureCanViewUser: Require shared account to view user
+ */
+
 const jwt = require("jsonwebtoken");
 const { SECRET_KEY } = require("../config");
 const { UnauthorizedError, ForbiddenError } = require("../expressError");
-const Database = require("../models/database");
+const Account = require("../models/account");
 const User = require("../models/user");
 const db = require("../db");
 
-
-/** Middleware: Authenticate user.
- *
- * If a token was provided, verify it, and, if valid, store the token payload
- * on res.locals (This will include ...)
- *
- * It's not an error if no token was provided or if the token is not valid.
- */
 function authenticateJWT(req, res, next) {
   const authHeader = req.headers?.authorization;
   if (authHeader) {
     const token = authHeader.replace(/^[Bb]earer /, "").trim();
-
     try {
       res.locals.user = jwt.verify(token, SECRET_KEY);
     } catch (err) {
-      /* ignore invalid tokens (but don't store user!) */
+      /* ignore invalid tokens */
     }
   }
   return next();
-
 }
 
-/** Middleware to use when they must be superAdmin.
- *
- * If not, raises Unauthorized.
- */
 function ensureSuperAdmin(req, res, next) {
   if (res.locals.user?.role === 'super_admin') return next();
   throw new UnauthorizedError();
 }
 
+function ensurePlatformAdmin(req, res, next) {
+  const role = res.locals.user?.role;
+  if (role === 'super_admin' || role === 'admin') return next();
+  throw new UnauthorizedError();
+}
 
-/** Middleware to use when they must be logged in.
- *
- * If not, raises Unauthorized.
- */
 function ensureLoggedIn(req, res, next) {
   if (res.locals.user?.email) return next();
   throw new UnauthorizedError();
 }
 
-/** Middleware to ensure the user is correct (matches the email in the request params).
- *
- * If the emails don't match, raises Unauthorized.
- */
 async function ensureCorrectUser(req, res, next) {
   const currentUser = res.locals.user?.email;
-
-  if (
-    currentUser && (currentUser === req.params.email))
-    return next();
+  if (currentUser && currentUser === req.params.email) return next();
   throw new UnauthorizedError();
 }
 
-/** Middleware to ensure the user is connected to a database and authorized to access it.
- *
- * Checks if the user has a valid `databaseId` in the request headers or params.
- * Then verifies if the user is linked to that database.
- *
- * If not, raises Unauthorized.
- */
-async function ensureDatabaseUser(req, res, next) {
-  console.log("res.locals.user: ", res.locals.user);
-  console.log("databaseId: ", req.headers);
-  try {
-    const userId = res.locals.user?.id;
-    const databaseId = req.headers["database-id"];
-
-    if (!userId) {
-      throw new UnauthorizedError("User authentication required.");
-    }
-
-    if (!databaseId) {
-      throw new UnauthorizedError("Database connection required.");
-    }
-
-    // Check if the user is linked to the database
-    const isAuthorized = await Database.isUserLinkedToDatabase(userId, databaseId);
-
-    if (!isAuthorized) {
-      throw new UnauthorizedError("User not authorized to access this database.");
-    }
-
-    //res.locals.databaseId = databaseId;
-    return next();
-  } catch (err) {
-    return next(err);
-  }
-}
-
-/**
- * Middleware: ensurePropertyAccess
- *
- * Ensures the user is logged in and either super_admin or allowed to access
- * the property-related resource. Two modes:
- *
- * 1) By property (default): single property by uid/id.
- *    Use: ensurePropertyAccess() or ensurePropertyAccess({ param: 'uid' })
- *    Reads property from req.params.uid / propertyId / PropertyId, resolves
- *    ULID to id if needed, and checks property_users. Use for GET /:uid,
- *    PATCH /:propertyId, etc.
- *
- * 2) By user: list keyed by userId (e.g. GET /user/:userId).
- *    Use: ensurePropertyAccess({ scope: 'user', param: 'userId' })
- *    Allows only if super_admin or req.params[param] === current user, so
- *    users only fetch their own team-member list (no DB hit).
- */
 function ensurePropertyAccess(options = {}) {
   const scope = options.scope === "user" ? "user" : "property";
   const param = options.param ?? (scope === "user" ? "userId" : "uid");
@@ -124,7 +69,7 @@ function ensurePropertyAccess(options = {}) {
     return function _ensurePropertyAccessByUser(req, res, next) {
       const user = res.locals.user;
       if (!user?.id) throw new UnauthorizedError();
-      if (user.role === "super_admin") return next();
+      if (user.role === "super_admin" || user.role === "admin") return next();
       if (String(user.id) === String(req.params[param])) return next();
       throw new ForbiddenError("You may only access properties for your own user.");
     };
@@ -136,7 +81,7 @@ function ensurePropertyAccess(options = {}) {
     try {
       const user = res.locals.user;
       if (!user?.id) throw new UnauthorizedError();
-      if (user.role === "super_admin") return next();
+      if (user.role === "super_admin" || user.role === "admin") return next();
 
       const raw = (fromBody && req.body && req.body[fromBody] != null)
         ? req.body[fromBody]
@@ -155,8 +100,7 @@ function ensurePropertyAccess(options = {}) {
       }
 
       const result = await db.query(
-        `SELECT 1 FROM property_users
-         WHERE property_id = $1 AND user_id = $2`,
+        `SELECT 1 FROM property_users WHERE property_id = $1 AND user_id = $2`,
         [propertyId, user.id],
       );
 
@@ -168,20 +112,47 @@ function ensurePropertyAccess(options = {}) {
   };
 }
 
-/**
- * Middleware: ensure the logged-in user is linked to the database in req.params.
- * Use for routes like GET /db/:databaseId so users only see users in their databases.
- * If not linked, raises Unauthorized.
- */
-function ensureUserCanAccessDatabaseByParam(paramName = "databaseId") {
-  return async function _ensureUserCanAccessDatabaseByParam(req, res, next) {
+function ensurePropertyOwner(paramName = "propertyId") {
+  return async function _ensurePropertyOwner(req, res, next) {
+    try {
+      const user = res.locals.user;
+      if (!user?.id) throw new UnauthorizedError();
+      if (user.role === "super_admin") return next();
+
+      const raw = req.params[paramName];
+      if (!raw) throw new ForbiddenError("Property identifier missing.");
+
+      let propertyId = raw;
+      if (/^[0-9A-Z]{26}$/i.test(raw)) {
+        const propRes = await db.query(
+          `SELECT id FROM properties WHERE property_uid = $1`, [raw]
+        );
+        if (propRes.rows.length === 0) throw new ForbiddenError("Property not found.");
+        propertyId = propRes.rows[0].id;
+      }
+
+      const result = await db.query(
+        `SELECT 1 FROM property_users WHERE property_id = $1 AND user_id = $2 AND role = 'owner'`,
+        [propertyId, user.id]
+      );
+      if (result.rows.length > 0) return next();
+      throw new ForbiddenError("Only the property owner can perform this action.");
+    } catch (err) {
+      return next(err);
+    }
+  };
+}
+
+function ensureUserCanAccessAccountByParam(paramName = "accountId") {
+  return async function _ensureUserCanAccessAccountByParam(req, res, next) {
     try {
       const userId = res.locals.user?.id;
       if (!userId) throw new UnauthorizedError("Authentication required.");
-      const databaseId = req.params[paramName];
-      if (!databaseId) throw new UnauthorizedError("Database identifier required.");
-      const isAuthorized = await Database.isUserLinkedToDatabase(userId, databaseId);
-      if (!isAuthorized) throw new UnauthorizedError("Not authorized to access this database.");
+      if (res.locals.user.role === "super_admin" || res.locals.user.role === "admin") return next();
+      const accountId = req.params[paramName];
+      if (!accountId) throw new UnauthorizedError("Account identifier required.");
+      const isAuthorized = await Account.isUserLinkedToAccount(userId, accountId);
+      if (!isAuthorized) throw new UnauthorizedError("Not authorized to access this account.");
       return next();
     } catch (err) {
       return next(err);
@@ -189,39 +160,31 @@ function ensureUserCanAccessDatabaseByParam(paramName = "databaseId") {
   };
 }
 
-/**
- * Middleware: allow only super_admin or the agent themselves (req.params[paramName] === current user id).
- * Use for GET /agent/:agentId.
- */
 function ensureAgentOrSelf(paramName = "agentId") {
   return function _ensureAgentOrSelf(req, res, next) {
     const user = res.locals.user;
     if (!user?.id) throw new UnauthorizedError("Authentication required.");
-    if (user.role === "super_admin") return next();
+    if (user.role === "super_admin" || user.role === "admin") return next();
     if (String(user.id) === String(req.params[paramName])) return next();
-    throw new ForbiddenError("You may only access users for your own agent profile.");
+    throw new ForbiddenError("You may only access your own profile.");
   };
 }
 
-/**
- * Middleware: ensure the logged-in user can view the user identified by req.params[paramName] (email).
- * Allows super_admin to view any user; others may only view users that share a database with them.
- */
 function ensureCanViewUser(paramName = "email") {
   return async function _ensureCanViewUser(req, res, next) {
     try {
       const user = res.locals.user;
       if (!user?.id) throw new UnauthorizedError("Authentication required.");
-      if (user.role === "super_admin") return next();
+      if (user.role === "super_admin" || user.role === "admin") return next();
       const targetUser = await User.get(req.params[paramName]);
       if (!targetUser?.id) throw new ForbiddenError("User not found.");
       const shared = await db.query(
-        `SELECT 1 FROM user_databases a
-         JOIN user_databases b ON a.database_id = b.database_id
+        `SELECT 1 FROM account_users a
+         JOIN account_users b ON a.account_id = b.account_id
          WHERE a.user_id = $1 AND b.user_id = $2 LIMIT 1`,
         [user.id, targetUser.id]
       );
-      if (shared.rows.length === 0) throw new ForbiddenError("You may only view users in your databases.");
+      if (shared.rows.length === 0) throw new ForbiddenError("You may only view users in your accounts.");
       return next();
     } catch (err) {
       return next(err);
@@ -229,35 +192,24 @@ function ensureCanViewUser(paramName = "email") {
   };
 }
 
-/** Middleware to ensure the user is a database admin or super admin.
- *
- * If not, raises Unauthorized.
- */
 function ensureAdminOrSuperAdmin(req, res, next) {
   const userRole = res.locals.user?.role;
-  const isSuperAdmin = userRole === 'super_admin';
-  const isAdmin = userRole === 'admin' || userRole === 'agent';
-
-  console.log("userRole: ", userRole);
-  console.log("isSuperAdmin: ", isSuperAdmin);
-  console.log("isAdmin: ", isAdmin);
-
-  if (isSuperAdmin || isAdmin) {
+  if (userRole === 'super_admin' || userRole === 'admin' || userRole === 'agent') {
     return next();
   }
-  throw new UnauthorizedError("User not authorized to access this database.");
+  throw new UnauthorizedError("Not authorized.");
 }
-
 
 module.exports = {
   authenticateJWT,
   ensureLoggedIn,
   ensureCorrectUser,
   ensureSuperAdmin,
-  ensureDatabaseUser,
+  ensurePlatformAdmin,
   ensureAdminOrSuperAdmin,
   ensurePropertyAccess,
-  ensureUserCanAccessDatabaseByParam,
+  ensurePropertyOwner,
+  ensureUserCanAccessAccountByParam,
   ensureAgentOrSelf,
   ensureCanViewUser,
 };

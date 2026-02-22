@@ -9,12 +9,7 @@ const databaseUpdateSchema = require("../schemas/databaseUpdate.json");
 
 const router = express.Router();
 
-/* GET ALL databases => { databases: [database, ...] }
- *
- * Returns [{ id, name, url, createdAt, updatedAt }]
- *
- * Authorization required: super_admin only
- */
+/** GET / - List all databases. Super admin only. */
 router.get("/", ensureSuperAdmin, async function (req, res, next) {
   try {
     const databases = await Database.getAll();
@@ -24,12 +19,7 @@ router.get("/", ensureSuperAdmin, async function (req, res, next) {
   }
 });
 
-/** GET /user/:userId => { databases: [database, ...] }
- *
- * Returns databases linked to the given user.
- *
- * Authorization required: logged in
- */
+/** GET /user/:userId - List databases for user. */
 router.get("/user/:userId", ensureLoggedIn, async function (req, res, next) {
   try {
     const databases = await Database.getUserDatabases(req.params.userId);
@@ -41,12 +31,7 @@ router.get("/user/:userId", ensureLoggedIn, async function (req, res, next) {
 
 
 
-/* GET /:id => { database }
- *
- * Returns { id, name, url, createdAt, updatedAt }
- *
- * Authorization required: logged in
- */
+/** GET /:id - Get single database. */
 router.get("/:id", ensureLoggedIn, async function (req, res, next) {
   try {
     const database = await Database.get(req.params.id);
@@ -56,15 +41,7 @@ router.get("/:id", ensureLoggedIn, async function (req, res, next) {
   }
 });
 
-/** POST / { database } => { database }
- *
- * Data should include:
- *   { name, url }
- *
- * Returns { id, name, url, createdAt, updatedAt }
- *
- * Authorization required: logged in
- */
+/** POST / - Create database. Body: { name }. */
 router.post("/", ensureLoggedIn, async function (req, res, next) {
   try {
     const validator = jsonschema.validate(req.body, databaseUpdateSchema);
@@ -80,15 +57,7 @@ router.post("/", ensureLoggedIn, async function (req, res, next) {
   }
 });
 
-/** POST /user_databases { userDatabase } => { userDatabase }
- *
- * Data should include:
- *   { userId, databaseId, role }
- *
- * Returns { id, userId, databaseId, createdAt, updatedAt }
- *
- * Authorization required: admin or super_admin
- */
+/** POST /user_databases - Add user to database. Body: { userId, databaseId, role }. Admin/super admin only. */
 router.post("/user_databases", ensureAdminOrSuperAdmin, async function (req, res, next) {
   try {
     const userDatabase = await Database.addUserToDatabase(req.body);
@@ -98,15 +67,7 @@ router.post("/user_databases", ensureAdminOrSuperAdmin, async function (req, res
   }
 });
 
-/** PATCH /:id { database } => { database }
- *
- * Data can include:
- *   { name, url }
- *
- * Returns { id, name, url, createdAt, updatedAt }
- *
- * Authorization required: logged in
- */
+/** PATCH /:id - Update database. Body: { name, url }. */
 router.patch("/:id", ensureLoggedIn, async function (req, res, next) {
   try {
     const validator = jsonschema.validate(req.body, databaseUpdateSchema);
@@ -122,14 +83,7 @@ router.patch("/:id", ensureLoggedIn, async function (req, res, next) {
   }
 });
 
-/** DELETE /:id
- *
- * Deletes the database identified by the given ID.
- *
- * Returns { deleted: id }
- *
- * Authorization required: logged in
- */
+/** DELETE /:id - Remove database. */
 router.delete("/:id", ensureLoggedIn, async function (req, res, next) {
   try {
     await Database.remove(req.params.id);

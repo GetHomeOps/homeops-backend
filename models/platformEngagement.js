@@ -1,5 +1,18 @@
 "use strict";
 
+/**
+ * PlatformEngagement Model
+ *
+ * Tracks user engagement events in the `platform_engagement_events` table.
+ * Records actions like login, page_view, property_created for analytics.
+ *
+ * Key operations:
+ * - logEvent: Record an engagement event (validates event type)
+ * - get / getAll: Retrieve events with optional filters
+ * - getCountsByType: Aggregate counts by event type
+ * - getDailyTrend: Daily event counts for charts
+ */
+
 const db = require("../db");
 const { NotFoundError, BadRequestError } = require("../expressError");
 

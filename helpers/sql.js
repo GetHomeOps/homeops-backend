@@ -1,5 +1,15 @@
 "use strict";
 
+/**
+ * SQL Helper
+ *
+ * Builds parameterized SET clauses for partial updates. Maps JS camelCase
+ * keys to snake_case column names. Returns setCols and values for use in
+ * UPDATE queries.
+ *
+ * Exports: sqlForPartialUpdate
+ */
+
 const { BadRequestError } = require("../expressError");
 
 /** Given parameters of an object with updated data and an object to map JS keys

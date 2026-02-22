@@ -10,12 +10,17 @@ const subscriptionProductUpdateSchema = require("../schemas/subscriptionProductU
 
 const router = express.Router();
 
-/** GET / => { products: [...] }
- *
- * Get all subscription products.
- *
- * Authorization: super_admin only
- */
+/** GET /for-role/:role - Get active products for role (homeowner, agent). */
+router.get("/for-role/:role", ensureLoggedIn, async function (req, res, next) {
+  try {
+    const products = await SubscriptionProduct.getByRole(req.params.role);
+    return res.json({ products });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+/** GET / - List all products. Super admin only. */
 router.get("/", ensureSuperAdmin, async function (req, res, next) {
   try {
     const products = await SubscriptionProduct.getAll();
@@ -25,12 +30,7 @@ router.get("/", ensureSuperAdmin, async function (req, res, next) {
   }
 });
 
-/** GET /:id => { product }
- *
- * Get a single subscription product by id.
- *
- * Authorization: logged in
- */
+/** GET /:id - Get single product. */
 router.get("/:id", ensureLoggedIn, async function (req, res, next) {
   try {
     const product = await SubscriptionProduct.get(Number(req.params.id));
@@ -40,22 +40,14 @@ router.get("/:id", ensureLoggedIn, async function (req, res, next) {
   }
 });
 
-/** POST / { product } => { product }
- *
- * Create a new subscription product.
- *
- * Body: { name, description, price }
- *
- * Authorization: super_admin only
- */
+/** POST / - Create product. Super admin only. */
 router.post("/", ensureSuperAdmin, async function (req, res, next) {
   try {
     const validator = jsonschema.validate(req.body, subscriptionProductNewSchema);
     if (!validator.valid) {
-      const errs = validator.errors.map((e) => e.stack);
+      const errs = validator.errors.map(e => e.stack);
       throw new BadRequestError(errs);
     }
-
     const product = await SubscriptionProduct.create(req.body);
     return res.status(201).json({ product });
   } catch (err) {
@@ -63,22 +55,14 @@ router.post("/", ensureSuperAdmin, async function (req, res, next) {
   }
 });
 
-/** PATCH /:id { product } => { product }
- *
- * Update a subscription product.
- *
- * Body can include: { name, description, price }
- *
- * Authorization: super_admin only
- */
+/** PATCH /:id - Update product. Super admin only. */
 router.patch("/:id", ensureSuperAdmin, async function (req, res, next) {
   try {
     const validator = jsonschema.validate(req.body, subscriptionProductUpdateSchema);
     if (!validator.valid) {
-      const errs = validator.errors.map((e) => e.stack);
+      const errs = validator.errors.map(e => e.stack);
       throw new BadRequestError(errs);
     }
-
     const product = await SubscriptionProduct.update(Number(req.params.id), req.body);
     return res.json({ product });
   } catch (err) {
@@ -86,12 +70,7 @@ router.patch("/:id", ensureSuperAdmin, async function (req, res, next) {
   }
 });
 
-/** DELETE /:id
- *
- * Remove a subscription product.
- *
- * Authorization: super_admin only
- */
+/** DELETE /:id - Remove product. Super admin only. */
 router.delete("/:id", ensureSuperAdmin, async function (req, res, next) {
   try {
     await SubscriptionProduct.remove(Number(req.params.id));

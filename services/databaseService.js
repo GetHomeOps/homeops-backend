@@ -1,5 +1,14 @@
 "use strict";
 
+/**
+ * Database Service
+ *
+ * Generates unique database names/URLs from user names. Used when creating
+ * new databases to ensure URL uniqueness (e.g., "john doe" -> "johndoe").
+ *
+ * Exports: generateDatabaseName
+ */
+
 const db = require("../db");
 
 /** Generate a unique database name and URL based on user information.

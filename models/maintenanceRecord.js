@@ -1,5 +1,17 @@
 "use strict";
 
+/**
+ * MaintenanceRecord Model
+ *
+ * Manages property maintenance records in the `property_maintenance` table.
+ * Tracks completed work, next service dates, and system-specific data.
+ *
+ * Key operations:
+ * - create / createMany: Add maintenance records
+ * - getByPropertyId / getByRecordId: Retrieve records
+ * - update / delete: Modify or remove records
+ */
+
 const db = require("../db");
 const { BadRequestError, NotFoundError } = require("../expressError");
 

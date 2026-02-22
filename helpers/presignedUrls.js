@@ -1,5 +1,14 @@
 "use strict";
 
+/**
+ * Presigned URLs Helper
+ *
+ * Adds temporary S3 presigned URLs to objects (single or array) for a given
+ * key field. Used to enrich API responses with preview URLs for images/docs.
+ *
+ * Exports: addPresignedUrlToItem, addPresignedUrlsToItems, isSafeS3Key
+ */
+
 const { getPresignedUrl } = require("../services/s3Service");
 
 /**

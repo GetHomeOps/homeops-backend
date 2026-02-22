@@ -1,30 +1,12 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "http://example.com/subscriptionUpdate.json",
   "type": "object",
   "properties": {
-    "subscriptionProductId": {
-      "type": ["integer", "null"]
-    },
-    "subscriptionType": {
-      "type": "string",
-      "minLength": 1,
-      "maxLength": 255
-    },
-    "subscriptionStatus": {
-      "type": "string",
-      "minLength": 1,
-      "maxLength": 255
-    },
-    "subscriptionStartDate": {
-      "type": "string",
-      "format": "date"
-    },
-    "subscriptionEndDate": {
-      "type": "string",
-      "format": "date"
-    }
+    "subscriptionProductId": { "type": "integer" },
+    "status": { "type": "string" },
+    "stripeSubscriptionId": { "type": "string" },
+    "currentPeriodStart": { "type": "string" },
+    "currentPeriodEnd": { "type": "string" }
   },
-  "additionalProperties": false,
-  "minProperties": 1
+  "additionalProperties": false
 }

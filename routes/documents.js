@@ -42,10 +42,7 @@ const upload = multer({
   },
 });
 
-/* POST /documents/upload
- * Uploads a document to S3.
- * Expects multipart/form-data with a "file" field.
- */
+/** POST /upload - Upload file to S3. Multipart form-data with "file" field. Returns key and URL. 10MB limit. */
 router.post("/upload", ensureLoggedIn, upload.single("file"), async (req, res, next) => {
   try {
     if (!AWS_S3_BUCKET) {
@@ -86,15 +83,7 @@ router.post("/upload", ensureLoggedIn, upload.single("file"), async (req, res, n
   }
 });
 
-/* GET /documents/presigned-preview?key={FILE_KEY}
- *
- * Returns a temporary presigned GET URL for secure document preview.
- * URL expires in 5 minutes. Requires authentication.
- *
- * Example: fetch(`/documents/presigned-preview?key=${encodeURIComponent(fileKey)}`, {
- *   headers: { Authorization: `Bearer ${token}` }
- * }).then(r => r.json()).then(({ url }) => { ... });
- */
+/** GET /presigned-preview?key= - Temporary presigned URL for document preview. Expires in 5 min. */
 router.get("/presigned-preview", ensureLoggedIn, async (req, res, next) => {
   try {
     const validKey = validateFileKey(req.query.key);

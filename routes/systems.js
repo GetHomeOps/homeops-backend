@@ -1,6 +1,5 @@
 "use strict";
 
-/* Routes for systems */
 const express = require("express");
 const jsonschema = require("jsonschema");
 const { ensureLoggedIn, ensurePropertyAccess } = require("../middleware/auth");
@@ -11,11 +10,7 @@ const systemUpdateSchema = require("../schemas/systemUpdate.json");
 
 const router = express.Router();
 
-/* POST [propertyId]   / => { system }
-*
-* Creates a new system for a property.
-* super_admin: full access. Others: must be on homeops team (property_users) for the property.
-**/
+/** POST /:propertyId - Create system for property. */
 router.post("/:propertyId", ensureLoggedIn, ensurePropertyAccess({ param: "propertyId" }), async function (req, res, next) {
   try {
     const validator = jsonschema.validate(req.body, systemNewSchema);
@@ -30,11 +25,7 @@ router.post("/:propertyId", ensureLoggedIn, ensurePropertyAccess({ param: "prope
   }
 });
 
-/* GET [propertyId] / => { systems }
-*
-* Returns all systems for a property.
-* super_admin: full access. Others: must be on homeops team for the property.
-**/
+/** GET /:propertyId - List systems for property. */
 router.get("/:propertyId", ensureLoggedIn, ensurePropertyAccess({ param: "propertyId" }), async function (req, res, next) {
   try {
     const systems = await System.get(req.params.propertyId);
@@ -44,11 +35,7 @@ router.get("/:propertyId", ensureLoggedIn, ensurePropertyAccess({ param: "proper
   }
 });
 
-/* PATCH [propertyId] { system } => { system }
-*
-* Updates a system for a property.
-* super_admin: full access. Others: must be on homeops team for the property.
-**/
+/** PATCH /:propertyId - Update system (upsert by system_key). Body: system_key, data, next_service_date, etc. */
 router.patch("/:propertyId", ensureLoggedIn, ensurePropertyAccess({ param: "propertyId" }), async function (req, res, next) {
   try {
     const { propertyId } = req.params;

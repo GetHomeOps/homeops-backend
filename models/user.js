@@ -1,5 +1,19 @@
 "use strict";
 
+/**
+ * User Model
+ *
+ * Handles all user-related database operations for the `users` table.
+ * Manages authentication, registration, profile updates, and account associations.
+ *
+ * Key operations:
+ * - authenticate: Verify credentials and return user data
+ * - register: Create new user with hashed password
+ * - get / getByAccountId / getUsersBySharedAccounts: Retrieve user(s)
+ * - update / remove: Modify or delete user records
+ * - changePassword / activateFromInvitation: Account lifecycle operations
+ */
+
 const db = require("../db");
 const bcrypt = require("bcrypt");
 const {
@@ -8,7 +22,7 @@ const {
   UnauthorizedError
 } = require("../expressError");
 const { sqlForPartialUpdate } = require("../helpers/sql");
-const { isDatabaseAdmin } = require("../helpers/usersDatabases");
+const { isAccountOwner } = require("../helpers/accountUsers");
 
 
 const { BCRYPT_WORK_FACTOR } = require("../config.js");
@@ -59,7 +73,16 @@ class User {
  *
  * Throws BadRequestError on duplicates.
  **/
-  static async register({ name, email, password, phone = null, role = 'admin', contact = 0, is_active = false }) {
+  static async register({ name, email, password, phone = null, role = 'homeowner', contact = 0, is_active = false }) {
+    if (name == null || (typeof name === 'string' && name.trim() === '')) {
+      throw new BadRequestError("Name is required");
+    }
+    if (email == null || (typeof email === 'string' && email.trim() === '')) {
+      throw new BadRequestError("Email is required");
+    }
+    if (password == null || (typeof password === 'string' && password.length < 4)) {
+      throw new BadRequestError("Password is required and must be at least 4 characters");
+    }
 
     const duplicateCheck = await db.query(`
       SELECT email
@@ -110,6 +133,28 @@ class User {
     return user;
   }
 
+  /** Given a user ID, return data about user.
+   *
+   * Returns { id, email, name, phone, role, contact, isActive, image }
+   * or null if not found.
+   */
+  static async getById(id) {
+    const result = await db.query(
+      `SELECT id,
+              email,
+              name,
+              phone,
+              role,
+              contact_id AS "contact",
+              is_active AS "isActive",
+              image
+       FROM users
+       WHERE id = $1`,
+      [id]
+    );
+    return result.rows[0] || null;
+  }
+
   /** Given an email, return data about user.
    *
    * Returns { email, fullName, phone, role, contact, isActive }
@@ -142,8 +187,8 @@ class User {
     }
   }
 
-  /* Get all users by database id */
-  static async getByDatabaseId(databaseId) {
+  /* Get all users by account id */
+  static async getByAccountId(accountId) {
     try {
       const userRes = await db.query(`
       SELECT u.id,
@@ -153,21 +198,20 @@ class User {
              u.contact_id AS "contact",
              u.is_active AS "isActive",
              u.image,
-             ud.role
-      FROM user_databases ud
-      JOIN users u ON u.id = ud.user_id
-      WHERE ud.database_id = $1`,
-        [databaseId]
+             au.role
+      FROM account_users au
+      JOIN users u ON u.id = au.user_id
+      WHERE au.account_id = $1`,
+        [accountId]
       );
-      console.log("userRes.rows:", userRes.rows);
       return userRes.rows;
     } catch (err) {
       throw err;
     }
   }
 
-  /* Get agent + all users for whom they are the agent */
-  static async getByAgentId(userId) {
+  /* Get user + all users that share any account with this user */
+  static async getUsersBySharedAccounts(userId) {
     try {
       const userRes = await db.query(`
       SELECT u.id,
@@ -191,10 +235,10 @@ class User {
              u.is_active AS "isActive",
              u.image,
              u.role::text AS "role"
-      FROM agent_databases ad
-      JOIN user_databases ud ON ud.database_id = ad.database_id
-      JOIN users u ON u.id = ud.user_id
-      WHERE ad.agent_id = $1`,
+      FROM account_users au1
+      JOIN account_users au2 ON au2.account_id = au1.account_id
+      JOIN users u ON u.id = au2.user_id
+      WHERE au1.user_id = $1 AND au2.user_id != $1`,
         [userId]
       );
       return userRes.rows;
@@ -253,16 +297,17 @@ class User {
      */
   static async update({ id, name, phone, contact, image }) {
     try {
-      /*  if (password) {
-         password = await bcrypt.hash(password, BCRYPT_WORK_FACTOR);
-       } */
+      const fields = {};
+      if (name !== undefined) fields.name = name;
+      if (phone !== undefined) fields.phone = phone;
+      if (contact !== undefined) fields.contact_id = contact;
+      if (image !== undefined) fields.image = image;
 
-      const { setCols, values } = sqlForPartialUpdate({
-        name,
-        phone,
-        contact_id: contact,
-        image
-      },
+      if (Object.keys(fields).length === 0) {
+        throw new BadRequestError("No data to update");
+      }
+
+      const { setCols, values } = sqlForPartialUpdate(fields,
         {
           contact_id: "contact_id"
         });
@@ -301,10 +346,9 @@ class User {
    **/
   static async remove(id) {
     try {
-      /* Check if user is a database admin */
-      const isAdmin = await isDatabaseAdmin(id);
-      if (isAdmin) {
-        throw new BadRequestError("User is a database admin and cannot be removed");
+      const isOwner = await isAccountOwner(id);
+      if (isOwner) {
+        throw new BadRequestError("User is an account owner and cannot be removed");
       }
       else {
         const result = await db.query(
@@ -356,20 +400,42 @@ class User {
     }
   }
 
-  /* Check if user is linked to any database and return the database ids */
-  static async userHasDatabase(userId) {
+  /* Check if user is linked to any account and return the account id */
+  static async userHasAccount(userId) {
     try {
       const result = await db.query(
-        `SELECT database_id
-      FROM user_databases
-      WHERE user_id = $1
-      RETURNING database_id`,
+        `SELECT account_id
+        FROM account_users
+        WHERE user_id = $1`,
         [userId]
       );
       return result.rows[0];
     } catch (err) {
       throw err;
     }
+  }
+
+  /** Change password for a user. Requires current password verification.
+   * @param {number} userId
+   * @param {string} currentPassword
+   * @param {string} newPassword
+   */
+  static async changePassword(userId, currentPassword, newPassword) {
+    const result = await db.query(
+      `SELECT password_hash AS "passwordHash" FROM users WHERE id = $1`,
+      [userId]
+    );
+    const user = result.rows[0];
+    if (!user) throw new NotFoundError(`No user with id: ${userId}`);
+
+    const isValid = await bcrypt.compare(currentPassword, user.passwordHash);
+    if (!isValid) throw new UnauthorizedError("Current password is incorrect");
+
+    const hashedPassword = await bcrypt.hash(newPassword, BCRYPT_WORK_FACTOR);
+    await db.query(
+      `UPDATE users SET password_hash = $1 WHERE id = $2`,
+      [hashedPassword, userId]
+    );
   }
 
   /* ----- Invitation functions ----- */

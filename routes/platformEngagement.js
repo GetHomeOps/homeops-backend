@@ -3,34 +3,26 @@
 const express = require("express");
 const jsonschema = require("jsonschema");
 const db = require("../db");
-const { ensureLoggedIn, ensureSuperAdmin } = require("../middleware/auth");
+const { ensureLoggedIn, ensureSuperAdmin, ensurePlatformAdmin } = require("../middleware/auth");
 const { BadRequestError } = require("../expressError");
 const PlatformEngagement = require("../models/platformEngagement");
 const engagementEventNewSchema = require("../schemas/engagementEventNew.json");
 
 const router = express.Router();
 
-/** Get user IDs that share a database with the given userId (for scoping engagement to agent's databases). */
-async function getUserIdsInSameDatabases(userId) {
+/** Get user IDs that share an account with the given userId. */
+async function getUserIdsInSameAccounts(userId) {
   const result = await db.query(
-    `SELECT DISTINCT ud2.user_id AS id
-     FROM user_databases ud1
-     JOIN user_databases ud2 ON ud1.database_id = ud2.database_id
-     WHERE ud1.user_id = $1`,
+    `SELECT DISTINCT au2.user_id AS id
+     FROM account_users au1
+     JOIN account_users au2 ON au1.account_id = au2.account_id
+     WHERE au1.user_id = $1`,
     [userId]
   );
   return result.rows.map((r) => r.id).filter(Boolean);
 }
 
-/** POST / { event } => { event }
- *
- * Log a new platform engagement event.
- *
- * Body: { eventType, eventData (optional) } — userId defaults to current user.
- * Super_admin may pass userId to log on behalf of another user.
- *
- * Authorization: logged in (any authenticated user can log events)
- */
+/** POST / - Log engagement event. Body: eventType, eventData (optional). Super_admin may pass userId. */
 router.post("/", ensureLoggedIn, async function (req, res, next) {
   try {
     const payload = { ...req.body };
@@ -50,14 +42,8 @@ router.post("/", ensureLoggedIn, async function (req, res, next) {
   }
 });
 
-/** GET / => { events: [...] }
- *
- * Get engagement events with optional filters:
- *   ?userId=1&eventType=login&startDate=2025-01-01&endDate=2025-12-31&limit=50&offset=0
- *
- * Authorization: super_admin only
- */
-router.get("/", ensureSuperAdmin, async function (req, res, next) {
+/** GET / - List events. Query: userId, eventType, startDate, endDate, limit, offset. Platform admin only. */
+router.get("/", ensurePlatformAdmin, async function (req, res, next) {
   try {
     const { userId, eventType, startDate, endDate, limit, offset } = req.query;
     const events = await PlatformEngagement.getAll({
@@ -74,19 +60,13 @@ router.get("/", ensureSuperAdmin, async function (req, res, next) {
   }
 });
 
-/** GET /counts => { counts: [...] }
- *
- * Get aggregated event counts grouped by event_type.
- *   ?startDate=2025-01-01&endDate=2025-12-31
- *
- * Authorization: logged in. Super_admin sees all; others see events for users in their databases.
- */
+/** GET /counts - Event counts by type. Query: startDate, endDate. Non-admin sees own accounts only. */
 router.get("/counts", ensureLoggedIn, async function (req, res, next) {
   try {
     const { startDate, endDate } = req.query;
     let userIds;
     if (res.locals.user?.role !== "super_admin") {
-      userIds = await getUserIdsInSameDatabases(res.locals.user.id);
+      userIds = await getUserIdsInSameAccounts(res.locals.user.id);
       if (!userIds.length) {
         return res.json({ counts: [] });
       }
@@ -98,19 +78,13 @@ router.get("/counts", ensureLoggedIn, async function (req, res, next) {
   }
 });
 
-/** GET /trend => { trend: [...] }
- *
- * Get daily event counts for trend analysis.
- *   ?startDate=2025-01-01&endDate=2025-12-31&eventType=login
- *
- * Authorization: logged in. Super_admin sees all; others see events for users in their databases.
- */
+/** GET /trend - Daily event trend. Query: startDate, endDate, eventType. Non-admin sees own accounts only. */
 router.get("/trend", ensureLoggedIn, async function (req, res, next) {
   try {
     const { startDate, endDate, eventType } = req.query;
     let userIds;
     if (res.locals.user?.role !== "super_admin") {
-      userIds = await getUserIdsInSameDatabases(res.locals.user.id);
+      userIds = await getUserIdsInSameAccounts(res.locals.user.id);
       if (!userIds.length) {
         return res.json({ trend: [] });
       }
@@ -122,13 +96,8 @@ router.get("/trend", ensureLoggedIn, async function (req, res, next) {
   }
 });
 
-/** GET /:id => { event }
- *
- * Get a single engagement event by id.
- *
- * Authorization: super_admin only
- */
-router.get("/:id", ensureSuperAdmin, async function (req, res, next) {
+/** GET /:id - Get single event. Platform admin only. */
+router.get("/:id", ensurePlatformAdmin, async function (req, res, next) {
   try {
     const event = await PlatformEngagement.get(Number(req.params.id));
     return res.json({ event });

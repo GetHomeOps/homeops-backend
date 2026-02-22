@@ -4,18 +4,17 @@ const express = require("express");
 const { ensureLoggedIn } = require("../middleware/auth");
 const { BadRequestError } = require("../expressError");
 const OpenAI = require("openai");
-const ApiUsage = require("../models/apiUsage");
+const AccountUsageEvent = require("../models/accountUsageEvent");
+const { logAiUsage } = require("../services/usageService");
+const db = require("../db");
 
 const router = new express.Router();
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 const AI_MODEL = "gpt-4o-mini";
+const DEFAULT_MONTHLY_CAP = 5.00;
 
-/**
- * The full JSON schema the model must return – covers every Identity-tab field.
- * Keys use camelCase to match the frontend form state directly.
- */
 const IDENTITY_FIELDS_SCHEMA = `{
   "propertyType": "<string e.g. Single Family, Townhouse, Condo, Multi-Family>",
   "subType": "<string e.g. Residential>",
@@ -50,36 +49,38 @@ const IDENTITY_FIELDS_SCHEMA = `{
   "reasoning": "<brief one-sentence explanation>"
 }`;
 
-/**
- * POST /predict/property-details
- *
- * Accepts whatever property information the frontend has (address, city, etc.)
- * and returns AI-predicted values for ALL Identity-section fields.
- *
- * Checks the user's monthly budget before calling OpenAI.
- * Records token usage after a successful call.
- *
- * Authorization: logged in
- */
+async function getUserAccountId(userId) {
+  const result = await db.query(
+    `SELECT account_id FROM account_users WHERE user_id = $1 LIMIT 1`,
+    [userId]
+  );
+  return result.rows[0]?.account_id || null;
+}
+
+/** POST /property-details - Predict property fields from partial data. Body: property info. Enforces monthly AI budget. */
 router.post("/property-details", ensureLoggedIn, async function (req, res, next) {
   try {
     const userId = res.locals.user?.id;
     if (!userId) throw new BadRequestError("Authentication required");
+
+    const accountId = await getUserAccountId(userId);
+    if (!accountId) throw new BadRequestError("No account found for user");
 
     const propertyInfo = req.body;
     if (!propertyInfo || Object.keys(propertyInfo).length === 0) {
       throw new BadRequestError("Property information is required");
     }
 
-    const budget = await ApiUsage.checkBudget(userId);
-    if (!budget.allowed) {
+    const spent = await AccountUsageEvent.getMonthlySpend(accountId);
+    const remaining = Math.max(0, DEFAULT_MONTHLY_CAP - spent);
+    if (remaining <= 0) {
       return res.status(429).json({
         error: {
-          message: `Monthly AI budget exhausted. You have spent $${budget.spent.toFixed(2)} of your $${budget.cap.toFixed(2)} limit. Resets on the 1st of next month.`,
+          message: `Monthly AI budget exhausted. You have spent $${spent.toFixed(2)} of your $${DEFAULT_MONTHLY_CAP.toFixed(2)} limit. Resets on the 1st of next month.`,
           status: 429,
           code: "BUDGET_EXCEEDED",
-          spent: budget.spent,
-          cap: budget.cap,
+          spent,
+          cap: DEFAULT_MONTHLY_CAP,
         },
       });
     }
@@ -100,12 +101,13 @@ ${IDENTITY_FIELDS_SCHEMA}`;
     });
 
     const usage = completion.usage || {};
-    await ApiUsage.record({
+    await logAiUsage({
+      accountId,
       userId,
-      endpoint: "predict/property-details",
-      model: AI_MODEL,
+      model: `openai/${AI_MODEL}`,
       promptTokens: usage.prompt_tokens || 0,
       completionTokens: usage.completion_tokens || 0,
+      endpoint: "predict/property-details",
     });
 
     const raw = completion.choices?.[0]?.message?.content?.trim();
@@ -125,14 +127,15 @@ ${IDENTITY_FIELDS_SCHEMA}`;
       }
     }
 
-    const updatedBudget = await ApiUsage.checkBudget(userId);
+    const updatedSpent = await AccountUsageEvent.getMonthlySpend(accountId);
+    const updatedRemaining = Math.max(0, DEFAULT_MONTHLY_CAP - updatedSpent);
 
     return res.json({
       prediction,
       usage: {
-        spent: updatedBudget.spent,
-        remaining: updatedBudget.remaining,
-        cap: updatedBudget.cap,
+        spent: updatedSpent,
+        remaining: updatedRemaining,
+        cap: DEFAULT_MONTHLY_CAP,
       },
     });
   } catch (err) {
@@ -143,20 +146,21 @@ ${IDENTITY_FIELDS_SCHEMA}`;
   }
 });
 
-/**
- * GET /predict/usage
- *
- * Returns the current user's monthly AI spend and remaining budget.
- *
- * Authorization: logged in
- */
+/** GET /usage - Current account's AI usage and remaining budget. */
 router.get("/usage", ensureLoggedIn, async function (req, res, next) {
   try {
     const userId = res.locals.user?.id;
     if (!userId) throw new BadRequestError("Authentication required");
 
-    const budget = await ApiUsage.checkBudget(userId);
-    return res.json({ usage: budget });
+    const accountId = await getUserAccountId(userId);
+    if (!accountId) throw new BadRequestError("No account found for user");
+
+    const spent = await AccountUsageEvent.getMonthlySpend(accountId);
+    const remaining = Math.max(0, DEFAULT_MONTHLY_CAP - spent);
+
+    return res.json({
+      usage: { allowed: remaining > 0, spent, remaining, cap: DEFAULT_MONTHLY_CAP },
+    });
   } catch (err) {
     return next(err);
   }

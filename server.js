@@ -1,8 +1,9 @@
 /**
- * server.js
+ * Server Entry Point
  *
- * Main server file for setting up Express with i18next for internationalization.
- * Serves dynamic translations and enables CORS for cross-origin requests.
+ * Starts the Express app. Initializes i18next for translations, mounts the app,
+ * and runs startup tasks: ensure super admin exists, create default account if
+ * needed, seed subscription products. Listens on PORT (default 3000).
  */
 const express = require('express');
 const i18next = require('i18next');
@@ -13,40 +14,31 @@ const path = require('path');
 require('dotenv').config();
 
 const User = require('./models/user');
-const Database = require('./models/database');
+const Account = require('./models/account');
 const SubscriptionProduct = require('./models/subscriptionProduct');
 const fs = require('fs');
 
 const app = require('./app.js');
 
 i18next
-  .use(Backend) // Load translations using filesystem backend
-  .use(i18nextMiddleware.LanguageDetector) // Detects language from request
+  .use(Backend)
+  .use(i18nextMiddleware.LanguageDetector)
   .init({
     backend: {
-      loadPath: './locales/{{lng}}/{{ns}}.json' // Path to translation files
+      loadPath: './locales/{{lng}}/{{ns}}.json'
     },
-    fallbackLng: 'en', // Fallback language if the requested one is not available
-    preload: ['en', 'es'], // Preload specific languages
-    ns: ['dynamic'], // Namespace for dynamic translations
-    defaultNS: 'dynamic', // Default namespace
+    fallbackLng: 'en',
+    preload: ['en', 'es'],
+    ns: ['dynamic'],
+    defaultNS: 'dynamic',
   });
 
-// Middleware for handling internationalization
 app.use(i18nextMiddleware.handle(i18next));
 
-// Endpoint to serve dynamic translations
-/**
- * GET /locales/:lng/:ns
- *
- * Serves the translation file for the specified language and namespace.
- * Example: /locales/en/dynamic
- */
 app.get('/locales/:lng/:ns', (req, res) => {
   const { lng, ns } = req.params;
   const filePath = path.join(__dirname, 'locales', lng, `${ns}.json`);
 
-  // Check if file exists before sending response
   fs.readFile(filePath, 'utf8', (err, data) => {
     if (err) {
       console.error(`Error loading translation file: ${filePath}`, err);
@@ -62,38 +54,29 @@ app.get('/locales/:lng/:ns', (req, res) => {
   });
 });
 
-// Server Port
 const PORT = process.env.PORT || 3000;
 
-// Initialize database and start server
 async function startServer() {
   try {
     const user = await User.initializeSuperAdmin();
     console.log("Super Admin user:", user);
 
     if (user) {
-      const mainDb = await Database.createMainDatabase(user.id);
-      console.log("mainDb (after creation):", mainDb); // Debugging output
+      const accounts = await Account.getUserAccounts(user.id).catch(() => []);
 
-      if (!mainDb) {
-        console.error("Main database creation failed!");
-        return;
-      }
-
-      const isLinked = await Database.isUserLinkedToDatabase(user.id, mainDb.id);
-      if (!isLinked) {
-        const userDb = await Database.addUserToDatabase({ userId: user.id, databaseId: mainDb.id });
-        console.log("userDb (after adding user):", userDb);
-        console.log("User added to main database successfully.");
+      if (!accounts || accounts.length === 0) {
+        const account = await Account.linkNewUserToAccount({
+          name: 'main',
+          userId: user.id,
+        });
+        console.log("Main account created:", account);
+      } else {
+        console.log("Super Admin already has an account.");
       }
     }
 
-    // Seed default subscription products (free, basic, professional, enterprise)
     await SubscriptionProduct.initializeDefaultProducts();
 
-    /*     app.listen(PORT, () => {
-          console.log(`Backend running on http://localhost:${PORT}`);
-        }); */
     app.listen(PORT, '0.0.0.0', () => {
       console.log(`Backend running on port ${PORT}`);
     });

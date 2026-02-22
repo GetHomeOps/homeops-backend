@@ -1,5 +1,19 @@
 "use strict";
 
+/**
+ * System Model
+ *
+ * Manages property systems in the `property_systems` table. Each system
+ * represents a home component (HVAC, plumbing, etc.) with optional
+ * next-service dates and JSONB data.
+ *
+ * Key operations:
+ * - create: Add a system to a property
+ * - get: List all systems for a property
+ * - exists: Check if (property_id, system_key) exists
+ * - update: Upsert system (create or update existing)
+ */
+
 const db = require("../db");
 const { BadRequestError, NotFoundError } = require("../expressError");
 const { sqlForPartialUpdate } = require("../helpers/sql");

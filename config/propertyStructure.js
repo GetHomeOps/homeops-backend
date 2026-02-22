@@ -1,3 +1,10 @@
+/**
+ * Property Structure Configuration
+ *
+ * Defines the UI structure for property forms: sections, field keys, and labels.
+ * Used by the frontend to render property edit/create forms.
+ */
+
 const propertyStructure = {
   identity: {
     label: "Identity",

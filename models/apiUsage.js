@@ -1,5 +1,18 @@
 "use strict";
 
+/**
+ * ApiUsage Model
+ *
+ * Tracks AI/API usage per user in the `user_api_usage` table. Calculates
+ * cost from token counts (GPT pricing) and enforces monthly spend caps.
+ *
+ * Key operations:
+ * - record: Log an API call with tokens and cost
+ * - getMonthlySpend: Total spend for current month
+ * - checkBudget: Verify user is within monthly cap
+ * - getHistory: Recent usage records
+ */
+
 const db = require("../db");
 
 /** gpt-4o-mini pricing (per token) */

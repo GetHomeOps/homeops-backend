@@ -1,5 +1,18 @@
 "use strict";
 
+/**
+ * Database Model
+ *
+ * Manages user databases in the `databases` table. Represents logical
+ * data containers with unique URLs, linked to users via user_databases.
+ *
+ * Key operations:
+ * - create / get / getAll / getUserDatabases: CRUD and user associations
+ * - addUserToDatabase / removeUserFromDatabase: Manage user access
+ * - linkNewUserToDatabase / linkUserToDatabase: Associate users
+ * - linkAgentToDatabase: Link agents to databases
+ */
+
 const db = require("../db");
 const {
   NotFoundError,

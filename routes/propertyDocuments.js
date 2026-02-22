@@ -16,13 +16,7 @@ async function loadPropertyIdFromDocument(req, res, next) {
   }
 }
 
-/* POST /propertyDocuments => { document }
- *
- * Creates a new property document.
- * Body: { property_id, document_name, document_date, document_key, document_type, system_key }
- * document_key: S3 object key from POST /documents/upload response.
- * super_admin: full access. Others: must be on homeops team (property_users) for the property.
- */
+/** POST / - Create document record. Body: property_id, document_name, document_date, document_key, document_type, system_key. */
 router.post("/", ensureLoggedIn, ensurePropertyAccess({ fromBody: "property_id", param: "propertyId" }), async (req, res, next) => {
   try {
     const { property_id, document_name, document_date, document_key, document_type, system_key } = req.body;
@@ -40,12 +34,7 @@ router.post("/", ensureLoggedIn, ensurePropertyAccess({ fromBody: "property_id",
   }
 });
 
-/* GET /propertyDocuments/property/:propertyId => { documents: [...] }
- *
- * Returns all property documents for a property.
- * Must be defined before /:id so /property/123 is not matched as id="property".
- * super_admin: full access. Others: must be on homeops team for the property.
- */
+/** GET /property/:propertyId - List documents for property. */
 router.get("/property/:propertyId", ensureLoggedIn, ensurePropertyAccess({ param: "propertyId" }), async (req, res, next) => {
   try {
     const documents = await PropertyDocument.getByPropertyId(req.params.propertyId);
@@ -55,11 +44,7 @@ router.get("/property/:propertyId", ensureLoggedIn, ensurePropertyAccess({ param
   }
 });
 
-/* GET /propertyDocuments/:id => { document }
- *
- * Returns a single property document by id.
- * super_admin: full access. Others: must be on homeops team for the document's property.
- */
+/** GET /:id - Get single document. */
 router.get("/:id", ensureLoggedIn, loadPropertyIdFromDocument, ensurePropertyAccess({ param: "propertyId" }), async (req, res, next) => {
   try {
     const document = await PropertyDocument.get(req.params.id);
@@ -69,11 +54,7 @@ router.get("/:id", ensureLoggedIn, loadPropertyIdFromDocument, ensurePropertyAcc
   }
 });
 
-/* DELETE /propertyDocuments/:id => { deleted: id }
- *
- * Deletes a property document.
- * super_admin: full access. Others: must be on homeops team for the document's property.
- */
+/** DELETE /:id - Remove document record. */
 router.delete("/:id", ensureLoggedIn, loadPropertyIdFromDocument, ensurePropertyAccess({ param: "propertyId" }), async (req, res, next) => {
   try {
     const result = await PropertyDocument.remove(req.params.id);

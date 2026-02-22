@@ -1,5 +1,14 @@
 "use strict";
 
+/**
+ * S3 Service
+ *
+ * AWS S3 operations for file storage. Uploads files, deletes by key,
+ * and generates presigned GET URLs for secure document preview.
+ *
+ * Exports: uploadFile, deleteFile, getPresignedUrl
+ */
+
 const { S3Client, PutObjectCommand, DeleteObjectCommand, GetObjectCommand } = require("@aws-sdk/client-s3");
 const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
 const { AWS_REGION, AWS_S3_BUCKET } = require("../config");

@@ -1,5 +1,18 @@
 "use strict";
 
+/**
+ * Contact Model
+ *
+ * Manages contacts in the `contacts` table. Contacts represent people or
+ * organizations (e.g., vendors, tenants) and can be linked to accounts.
+ *
+ * Key operations:
+ * - create / get / getAll: CRUD for contacts
+ * - addToAccount: Associate contact with an account
+ * - getByAccountId: List contacts for a given account
+ * - removeWithAccountLinks: Delete contact and all account associations
+ */
+
 const db = require("../db.js");
 const { BadRequestError, NotFoundError } = require("../expressError");
 const { sqlForPartialUpdate } = require("../helpers/sql");
@@ -57,24 +70,21 @@ class Contact {
     return result.rows[0];
   }
 
-  /* Add a contact to a database.
+  /** Add a contact to an account.
    *
-   * Data should include:
-   *   { contactId, databaseId }
+   * Data: { contactId, accountId }
    *
-   * Returns { contactId, databaseId, createdAt, updatedAt }
-   *
-   * Throws BadRequestError if contact already exists in database.
+   * Returns { contact_id, account_id, createdAt, updatedAt }
    **/
-  static async addToDatabase({ contactId, databaseId }) {
+  static async addToAccount({ contactId, accountId }) {
     const result = await db.query(
-      `INSERT INTO contacts_databases (contact_id, database_id)
+      `INSERT INTO account_contacts (contact_id, account_id)
        VALUES ($1, $2)
        RETURNING contact_id,
-                 database_id,
+                 account_id,
                  created_at AS "createdAt",
                  updated_at AS "updatedAt"`,
-      [contactId, databaseId]
+      [contactId, accountId]
     );
 
     return result.rows[0];
@@ -111,12 +121,12 @@ class Contact {
     return result.rows;
   }
 
-  /** Get all contacts for a specific database.
+  /** Get all contacts for a specific account.
    *
    * Returns [{ id, name, image, type, phone, email, website, street1, street2, city, state, zip_code, country, country_code, notes, role, created_at, updated_at }, ...]
    * Returns empty array if no contacts found.
    **/
-  static async getByDatabaseId(databaseId) {
+  static async getByAccountId(accountId) {
     const result = await db.query(
       `SELECT c.id,
               c.name,
@@ -137,10 +147,10 @@ class Contact {
               c.created_at,
               c.updated_at
        FROM contacts c
-       JOIN contacts_databases cd ON cd.contact_id = c.id
-       WHERE cd.database_id = $1
+       JOIN account_contacts ac ON ac.contact_id = c.id
+       WHERE ac.account_id = $1
        ORDER BY c.name`,
-      [databaseId]
+      [accountId]
     );
 
     return result.rows;
@@ -231,6 +241,22 @@ class Contact {
     return contact;
   }
 
+  /** Find a contact by email within a specific account.
+   *
+   * Returns the contact row if found, or null if not.
+   */
+  static async getByEmailAndAccount(email, accountId) {
+    const result = await db.query(
+      `SELECT c.id, c.name, c.email
+       FROM contacts c
+       JOIN account_contacts ac ON ac.contact_id = c.id
+       WHERE c.email = $1 AND ac.account_id = $2
+       LIMIT 1`,
+      [email, accountId]
+    );
+    return result.rows[0] || null;
+  }
+
   /** Delete given contact from database; returns undefined.
    *
    * Throws NotFoundError if contact not found.
@@ -248,23 +274,21 @@ class Contact {
     if (!contact) throw new NotFoundError(`No contact: ${id}`);
   }
 
-  /** Remove contact from all databases and then delete the contact.
+  /** Remove contact from all accounts and then delete the contact.
    *
-   * First removes all records from contacts_databases for this contact,
+   * First removes all records from account_contacts for this contact,
    * then deletes the contact itself by calling remove().
    *
    * Returns undefined.
    *
    * Throws NotFoundError if contact not found.
    **/
-  static async removeWithDatabaseLinks(id) {
-    // Remove all database associations
+  static async removeWithAccountLinks(id) {
     await db.query(
-      `DELETE FROM contacts_databases WHERE contact_id = $1`,
+      `DELETE FROM account_contacts WHERE contact_id = $1`,
       [id]
     );
 
-    // Then delete the contact using the existing remove function
     await this.remove(id);
   }
 }

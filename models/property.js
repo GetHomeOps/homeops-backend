@@ -1,5 +1,19 @@
 "use strict";
 
+/**
+ * Property Model
+ *
+ * Manages properties in the `properties` table. Properties represent real estate
+ * units with detailed attributes (address, specs, schools, etc.) and support
+ * multi-user access via property_users.
+ *
+ * Key operations:
+ * - create / get / getAll: CRUD for properties
+ * - getPropertiesByAccountId / getPropertiesByUserId: Filter by account or user
+ * - addUserToProperty / updatePropertyUsers: Manage property team access
+ * - getPropertyTeam / getAgentByAccountId: Retrieve team/agent data
+ */
+
 const { ulid } = require("ulid");
 const db = require("../db");
 const { BadRequestError, NotFoundError } = require("../expressError");
@@ -9,6 +23,7 @@ const { sqlForPartialUpdate } = require("../helpers/sql");
 /** Insertable columns for properties (matches pos-schema.sql; excludes id, created_at, updated_at) */
 const PROPERTY_INSERT_COLUMNS = [
   "property_uid",
+  "account_id",
   "passport_id", "property_name", "main_photo", "tax_id", "county",
   "address", "address_line_1", "address_line_2", "city", "state", "zip",
   "owner_name", "owner_name_2", "owner_city", "occupant_name", "occupant_type",
@@ -75,14 +90,14 @@ class Property {
     const result = await db.query(
       `INSERT INTO properties (${cols})
        VALUES (${placeholders})
-       RETURNING id, property_uid, passport_id, address, city, state, zip`,
+       RETURNING id, property_uid, passport_id, account_id, address, city, state, zip`,
       values
     );
     return result.rows[0];
   }
 
   /* Add user to property (upsert: update role if already exists) */
-  static async addUserToProperty({ property_id, user_id, role }) {
+  static async addUserToProperty({ property_id, user_id, role = 'editor' }) {
     const result = await db.query(
       `INSERT INTO property_users (property_id, user_id, role)
        VALUES ($1, $2, $3)
@@ -108,21 +123,29 @@ class Property {
     }
   }
 
-  /* Get Property agent by Database ID */
-  static async getAgentByDbId(database_id) {
+  /* Get agents/admins for an account */
+  static async getAgentByAccountId(accountId) {
     const result = await db.query(
       `SELECT u.id,
               u.email,
               u.name,
               u.phone,
               u.role
-       FROM agent_databases ad
-       JOIN users u ON u.id = ad.agent_id
-       WHERE ad.database_id = $1
+       FROM account_users au
+       JOIN users u ON u.id = au.user_id
+       WHERE au.account_id = $1 AND (u.role = 'agent' OR au.role = 'admin')
        ORDER BY u.name`,
-      [database_id]
+      [accountId]
     );
-    console.log("result.rows:", result.rows);
+    return result.rows;
+  }
+
+  /* Get properties by account id */
+  static async getPropertiesByAccountId(accountId) {
+    const result = await db.query(
+      `SELECT p.* FROM properties p WHERE p.account_id = $1`,
+      [accountId]
+    );
     return result.rows;
   }
 
@@ -238,13 +261,13 @@ class Property {
    *  Time: O(M + N) — M = current rows for property, N = desired list size. Constant 3–4 queries.
    *
    *  @param {number} propertyId - internal property id
-   *  @param {Array<{ id: number, role?: string }>} users - desired team (id = user_id, role defaults to 'agent')
+   *  @param {Array<{ id: number, role?: string }>} users - desired team (id = user_id, role defaults to 'editor')
    *  @returns {Promise<Array>} rows from property_users for this property after sync
    */
   static async updatePropertyUsers(propertyId, users) {
     if (!Array.isArray(users)) throw new BadRequestError("users must be an array");
-    const ALLOWED_ROLES = ["admin", "agent", "homeowner"];
-    const normalizeRole = (r) => (ALLOWED_ROLES.includes(r) ? r : r === "super_admin" ? "admin" : "agent");
+    const ALLOWED_ROLES = ["owner", "editor", "viewer"];
+    const normalizeRole = (r) => (ALLOWED_ROLES.includes(r) ? r : "editor");
 
     const byId = new Map();
     for (const u of users) byId.set(u.id, u);
@@ -273,7 +296,7 @@ class Property {
       }
 
       const placeholders = uniqueUsers.map((_, i) => `($1, $${2 + i * 2}, $${3 + i * 2})`).join(", ");
-      const values = [propertyId, ...uniqueUsers.flatMap((u) => [u.id, normalizeRole(u.role || "agent")])];
+      const values = [propertyId, ...uniqueUsers.flatMap((u) => [u.id, normalizeRole(u.role || "editor")])];
       const result = await db.query(
         `INSERT INTO property_users (property_id, user_id, role)
          VALUES ${placeholders}

@@ -1,5 +1,17 @@
 "use strict";
 
+/**
+ * PropertyDocument Model
+ *
+ * Manages property documents in the `property_documents` table. Stores metadata
+ * for documents (S3 keys, names, dates) linked to properties and systems.
+ *
+ * Key operations:
+ * - create: Add document metadata
+ * - get / getByPropertyId: Retrieve document(s)
+ * - remove: Delete document record
+ */
+
 const db = require("../db");
 const { BadRequestError, NotFoundError } = require("../expressError");
 

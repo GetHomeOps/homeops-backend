@@ -1,5 +1,18 @@
 "use strict";
 
+/**
+ * UserInvitation Model
+ *
+ * Manages user activation invitations in the `user_invitations` table.
+ * Token-based flow for inviting users to set password and activate account.
+ *
+ * Key operations:
+ * - create: Create invitation with hashed token
+ * - findValid / findValidByUserId: Fetch valid (unused, unexpired) invitations
+ * - markUsed / invalidateAllForUser: Update invitation status
+ * - validateInvitationToken: Verify token and return invitation
+ */
+
 const db = require("../db");
 const crypto = require("crypto");
 const { BadRequestError, NotFoundError, UnauthorizedError } = require("../expressError");

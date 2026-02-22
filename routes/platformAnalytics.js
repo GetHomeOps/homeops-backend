@@ -1,25 +1,13 @@
 "use strict";
 
 const express = require("express");
-const { ensureSuperAdmin } = require("../middleware/auth");
+const { ensurePlatformAdmin } = require("../middleware/auth");
 const PlatformMetrics = require("../models/platformMetrics");
 
 const router = express.Router();
 
-/** GET /summary => { summary }
- *
- * Get a high-level platform summary with totals, growth, averages, and distributions.
- *
- * Returns:
- *   { totalUsers, totalDatabases, totalProperties, totalSystems,
- *     totalMaintenanceRecords, totalSubscriptions,
- *     newUsersLast30d, newDatabasesLast30d, newPropertiesLast30d,
- *     avgPropertiesPerDatabase, avgUsersPerDatabase, avgHpsScore,
- *     usersByRole, subscriptionsByStatus }
- *
- * Authorization: super_admin only
- */
-router.get("/summary", ensureSuperAdmin, async function (req, res, next) {
+/** GET /summary - Platform totals (users, accounts, properties, etc.). Platform admin only. */
+router.get("/summary", ensurePlatformAdmin, async function (req, res, next) {
   try {
     const summary = await PlatformMetrics.getPlatformSummary();
     return res.json({ summary });
@@ -28,14 +16,8 @@ router.get("/summary", ensureSuperAdmin, async function (req, res, next) {
   }
 });
 
-/** GET /daily => { metrics: [...] }
- *
- * Get daily platform metric snapshots from the daily_platform_metrics view.
- *   ?startDate=2025-01-01&endDate=2025-12-31
- *
- * Authorization: super_admin only
- */
-router.get("/daily", ensureSuperAdmin, async function (req, res, next) {
+/** GET /daily - Daily metrics by date range. Query: startDate, endDate. Platform admin only. */
+router.get("/daily", ensurePlatformAdmin, async function (req, res, next) {
   try {
     const { startDate, endDate } = req.query;
     const metrics = await PlatformMetrics.getDailyMetrics({ startDate, endDate });
@@ -45,21 +27,8 @@ router.get("/daily", ensureSuperAdmin, async function (req, res, next) {
   }
 });
 
-/** GET /growth/:entity => { growth: [...] }
- *
- * Get monthly growth data for a given entity.
- *
- * Path params:
- *   :entity — "users" | "databases" | "properties" | "subscriptions"
- *
- * Query params (optional):
- *   ?months=12  (number of months to look back, default 12)
- *
- * Returns [{ month: "YYYY-MM", count }, ...]
- *
- * Authorization: super_admin only
- */
-router.get("/growth/:entity", ensureSuperAdmin, async function (req, res, next) {
+/** GET /growth/:entity - Monthly growth. Entity: users, accounts, properties. Query: months. Platform admin only. */
+router.get("/growth/:entity", ensurePlatformAdmin, async function (req, res, next) {
   try {
     const { entity } = req.params;
     const months = req.query.months ? Number(req.query.months) : 12;
@@ -70,31 +39,43 @@ router.get("/growth/:entity", ensureSuperAdmin, async function (req, res, next) 
   }
 });
 
-/** GET /databases => { analytics: [...] }
- *
- * Get analytics for all databases from the database_analytics view.
- *
- * Authorization: super_admin only
- */
-router.get("/databases", ensureSuperAdmin, async function (req, res, next) {
+/** GET /accounts - Account analytics snapshot. Platform admin only. */
+router.get("/accounts", ensurePlatformAdmin, async function (req, res, next) {
   try {
-    const analytics = await PlatformMetrics.getDatabaseAnalytics();
+    const analytics = await PlatformMetrics.getAccountAnalytics();
     return res.json({ analytics });
   } catch (err) {
     return next(err);
   }
 });
 
-/** GET /databases/:databaseId => { analytics }
- *
- * Get analytics for a single database.
- *
- * Authorization: super_admin only
- */
-router.get("/databases/:databaseId", ensureSuperAdmin, async function (req, res, next) {
+/** GET /accounts/:accountId - Single account analytics. Platform admin only. */
+router.get("/accounts/:accountId", ensurePlatformAdmin, async function (req, res, next) {
   try {
-    const analytics = await PlatformMetrics.getDatabaseAnalyticsById(Number(req.params.databaseId));
+    const analytics = await PlatformMetrics.getAccountAnalyticsById(Number(req.params.accountId));
     return res.json({ analytics });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+/** GET /costs/summary - Usage cost summary. Query: startDate, endDate. Platform admin only. */
+router.get("/costs/summary", ensurePlatformAdmin, async function (req, res, next) {
+  try {
+    const { startDate, endDate } = req.query;
+    const summary = await PlatformMetrics.getCostSummary({ startDate, endDate });
+    return res.json({ summary });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+/** GET /costs/per-account - Cost per account. Query: startDate, endDate. Platform admin only. */
+router.get("/costs/per-account", ensurePlatformAdmin, async function (req, res, next) {
+  try {
+    const { startDate, endDate } = req.query;
+    const data = await PlatformMetrics.getCostPerAccount({ startDate, endDate });
+    return res.json({ accounts: data });
   } catch (err) {
     return next(err);
   }

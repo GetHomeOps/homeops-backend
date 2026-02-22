@@ -1,7 +1,9 @@
-/** ExpressError extends normal JS error so we can
- *  add a status when we make an instance of it.
+/**
+ * Express Error Classes
  *
- *  The error-handling middleware will return this.
+ * Custom error types with HTTP status codes for API error handling.
+ * ExpressError (base), NotFoundError (404), UnauthorizedError (401),
+ * BadRequestError (400), ForbiddenError (403).
  */
 
 class ExpressError extends Error {

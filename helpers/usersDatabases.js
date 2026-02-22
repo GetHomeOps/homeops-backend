@@ -1,5 +1,14 @@
 "use strict";
 
+/**
+ * Users Databases Helper
+ *
+ * Checks database-user relationships. Used to determine if a database
+ * has any linked users (for role assignment) and if a user is a db admin.
+ *
+ * Exports: isDatabaseLinkedToUser, isDatabaseAdmin
+ */
+
 const db = require("../db");
 
 /* Check if a database is linked to any user return false if not */

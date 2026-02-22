@@ -1,6 +1,11 @@
 "use strict";
 
-/** Database setup for POS System */
+/**
+ * Database Client
+ *
+ * PostgreSQL client (pg) configured from config.getDatabaseUri().
+ * Connects on load. Used by all models for queries.
+ */
 const { Client } = require("pg");
 const { getDatabaseUri } = require("./config");
 

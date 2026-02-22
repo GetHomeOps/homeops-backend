@@ -1,5 +1,14 @@
 "use strict";
 
+/**
+ * Invitation Tokens Helper
+ *
+ * Generates secure invitation tokens. Returns raw token (for email) and
+ * SHA-256 hash (for database storage). Used by invitation service.
+ *
+ * Exports: generateInvitationToken
+ */
+
 const crypto = require("crypto");
 
 function generateInvitationToken() {

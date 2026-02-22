@@ -1,6 +1,12 @@
 "use strict";
 
-/** Shared config for application; can be required many places. */
+/**
+ * Application Configuration
+ *
+ * Central config for the backend. Loads from environment variables.
+ * Exports: SECRET_KEY, PORT, BCRYPT_WORK_FACTOR, getDatabaseUri,
+ *          AWS_REGION, AWS_S3_BUCKET
+ */
 
 require("dotenv").config();
 require("colors");

@@ -1,12 +1,27 @@
+/**
+ * Express Application
+ *
+ * Configures the main Express app: CORS, compression, JSON parsing,
+ * JWT authentication, and route mounting. All API routes are mounted
+ * under their respective paths. 404 and error handlers at the end.
+ *
+ * Route prefixes:
+ * - /auth, /users, /accounts, /contacts, /properties
+ * - /systems, /maintenance, /documents, /propertyDocuments
+ * - /subscriptions, /subscription-products, /invitations
+ * - /engagement, /analytics, /predict
+ */
+
 const express = require('express');
 const cors = require('cors');
-const path = require('path');
+const compression = require('compression');
+const rateLimit = require('express-rate-limit');
 const { NotFoundError } = require("./expressError");
 const { authenticateJWT } = require("./middleware/auth");
 
 const authRoutes = require("./routes/auth");
 const usersRoutes = require("./routes/users");
-const databasesRoutes = require("./routes/databases");
+const accountsRoutes = require("./routes/accounts");
 const contactsRoutes = require("./routes/contacts");
 const propertiesRoutes = require("./routes/properties");
 const systemsRoutes = require("./routes/systems");
@@ -15,18 +30,21 @@ const documentsRoutes = require("./routes/documents");
 const propertyDocumentsRoutes = require("./routes/propertyDocuments");
 const subscriptionsRoutes = require("./routes/subscriptions");
 const subscriptionProductsRoutes = require("./routes/subscriptionProducts");
+const invitationsRoutes = require("./routes/invitations");
 const platformEngagementRoutes = require("./routes/platformEngagement");
 const platformAnalyticsRoutes = require("./routes/platformAnalytics");
 const propertyPredictRoutes = require("./routes/propertyPredict");
+
 const app = express();
 
-// CORS MUST be configured before any other middleware to handle preflight requests
 const corsOptions = {
-  origin: [
-    'http://localhost:5173',
-    'http://localhost:5174',
-    'https://homeops-frontend2-production.up.railway.app'
-  ],
+  origin: process.env.CORS_ORIGINS
+    ? process.env.CORS_ORIGINS.split(',')
+    : [
+        'http://localhost:5173',
+        'http://localhost:5174',
+        'https://homeops-frontend2-production.up.railway.app'
+      ],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true,
@@ -34,11 +52,9 @@ const corsOptions = {
 };
 app.use(cors(corsOptions));
 
+app.use(compression());
 app.use(express.json());
 
-app.use(authenticateJWT);
-
-// Add this health check route;
 app.get('/', (req, res) => {
   res.json({
     status: 'ok',
@@ -51,9 +67,19 @@ app.get('/health', (req, res) => {
   res.json({ status: 'healthy' });
 });
 
-app.use("/auth", authRoutes);
+app.use(authenticateJWT);
+
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: { message: "Too many requests, please try again later.", status: 429 } },
+});
+
+app.use("/auth", authLimiter, authRoutes);
 app.use("/users", usersRoutes);
-app.use("/databases", databasesRoutes);
+app.use("/accounts", accountsRoutes);
 app.use("/contacts", contactsRoutes);
 app.use("/properties", propertiesRoutes);
 app.use("/systems", systemsRoutes);
@@ -62,33 +88,15 @@ app.use("/documents", documentsRoutes);
 app.use("/propertyDocuments", propertyDocumentsRoutes);
 app.use("/subscriptions", subscriptionsRoutes);
 app.use("/subscription-products", subscriptionProductsRoutes);
+app.use("/invitations", invitationsRoutes);
 app.use("/engagement", platformEngagementRoutes);
 app.use("/analytics", platformAnalyticsRoutes);
 app.use("/predict", propertyPredictRoutes);
 
-/** Handle 404 errors -- this matches everything */
 app.use(function (req, res, next) {
   throw new NotFoundError();
 });
 
-/**
- * Serve React frontend
- * Make sure you've run `npm run build` in the frontend
- * and the build folder is located at ../frontend/build
- */
-/* app.use(express.static(path.join(__dirname, '../frontend/build'))); */
-
-// Catch-all route to serve React index.html for unknown routes
-/* app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, '../frontend/build', 'index.html'));
-}); */
-
-// 404 handler for any unmatched API routes (optional, after React fallback)
-/* app.use(function (req, res, next) {
-  throw new NotFoundError();
-}); */
-
-/** Generic error handler; anything unhandled goes here. */
 app.use(function (err, req, res, next) {
   if (process.env.NODE_ENV !== "test") console.error(err.stack);
 

@@ -21,12 +21,7 @@ async function loadPropertyIdFromRecord(req, res, next) {
   }
 }
 
-/* POST / => { maintenanceRecords }
- *
- * Creates multiple maintenance records. Body: { maintenanceRecords: [{ property_id, system_key, ... }, ...] }
- * Returns all created records.
- * super_admin: full access. Others: must be on homeops team (property_users) for the property.
- **/
+/** POST /:PropertyId - Create multiple maintenance records (batch). Body: { maintenanceRecords: [...] }. */
 router.post("/:PropertyId", ensureLoggedIn, ensurePropertyAccess({ param: "PropertyId" }), async function (req, res, next) {
   try {
     const validator = jsonschema.validate(req.body, maintenanceRecordsBatchSchema);
@@ -42,11 +37,7 @@ router.post("/:PropertyId", ensureLoggedIn, ensurePropertyAccess({ param: "Prope
   }
 });
 
-/* POST /:PropertyId => { maintenanceRecord }
- *
- * Creates a single maintenance record for the given property.
- * super_admin: full access. Others: must be on homeops team for the property.
- **/
+/** POST /record/:PropertyId - Create single maintenance record. */
 router.post("/record/:PropertyId", ensureLoggedIn, ensurePropertyAccess({ param: "PropertyId" }), async function (req, res, next) {
   try {
     const validator = jsonschema.validate(req.body, maintenanceRecordNewSchema);
@@ -65,9 +56,7 @@ router.post("/record/:PropertyId", ensureLoggedIn, ensurePropertyAccess({ param:
   }
 });
 
-/* GET /:PropertyId => { maintenanceRecords }
- * super_admin: full access. Others: must be on homeops team for the property.
- */
+/** GET /:PropertyId - List maintenance records for property. */
 router.get("/:PropertyId", ensureLoggedIn, ensurePropertyAccess({ param: "PropertyId" }), async function (req, res, next) {
   try {
     const { PropertyId } = req.params;
@@ -78,12 +67,7 @@ router.get("/:PropertyId", ensureLoggedIn, ensurePropertyAccess({ param: "Proper
   }
 });
 
-/* PATCH /:recordId => { maintenance }
- *
- * Updates a maintenance record by id.
- * Body: { property_id, system_key, completed_at, next_service_date, data, status }
- * super_admin: full access. Others: must be on homeops team for the record's property.
- **/
+/** PATCH /:recordId - Update maintenance record. Body: property_id, system_key, completed_at, etc. */
 router.patch("/:recordId", ensureLoggedIn, loadPropertyIdFromRecord, ensurePropertyAccess({ param: "propertyId" }), async function (req, res, next) {
   try {
     const { recordId } = req.params;
@@ -99,11 +83,7 @@ router.patch("/:recordId", ensureLoggedIn, loadPropertyIdFromRecord, ensurePrope
   }
 });
 
-/* DELETE /:recordId => { deleted }
- *
- * Deletes a maintenance record by id.
- * super_admin: full access. Others: must be on homeops team for the record's property.
- **/
+/** DELETE /:recordId - Delete maintenance record. */
 router.delete("/:recordId", ensureLoggedIn, loadPropertyIdFromRecord, ensurePropertyAccess({ param: "propertyId" }), async function (req, res, next) {
   try {
     const { recordId } = req.params;
