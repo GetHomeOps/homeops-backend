@@ -9,7 +9,8 @@ const { sqlForPartialUpdate } = require("../helpers/sql");
 /** Insertable columns for properties (matches pos-schema.sql; excludes id, created_at, updated_at) */
 const PROPERTY_INSERT_COLUMNS = [
   "property_uid",
-  "passport_id", "main_photo", "tax_id", "county", "address", "city", "state", "zip",
+  "passport_id", "property_name", "main_photo", "tax_id", "county",
+  "address", "address_line_1", "address_line_2", "city", "state", "zip",
   "owner_name", "owner_name_2", "owner_city", "occupant_name", "occupant_type",
   "owner_phone", "phone_to_show", "property_type", "sub_type", "roof_type",
   "year_built", "effective_year_built", "effective_year_built_source",
@@ -154,10 +155,13 @@ class Property {
   static async updateProperty(id, data) {
     const { setCols, values } = sqlForPartialUpdate(data, {
       passport_id: "passport_id",
+      property_name: "property_name",
       main_photo: "main_photo",
       tax_id: "tax_id",
       county: "county",
       address: "address",
+      address_line_1: "address_line_1",
+      address_line_2: "address_line_2",
       city: "city",
       state: "state",
       zip: "zip",

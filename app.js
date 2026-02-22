@@ -17,6 +17,7 @@ const subscriptionsRoutes = require("./routes/subscriptions");
 const subscriptionProductsRoutes = require("./routes/subscriptionProducts");
 const platformEngagementRoutes = require("./routes/platformEngagement");
 const platformAnalyticsRoutes = require("./routes/platformAnalytics");
+const propertyPredictRoutes = require("./routes/propertyPredict");
 const app = express();
 
 // CORS MUST be configured before any other middleware to handle preflight requests
@@ -63,6 +64,7 @@ app.use("/subscriptions", subscriptionsRoutes);
 app.use("/subscription-products", subscriptionProductsRoutes);
 app.use("/engagement", platformEngagementRoutes);
 app.use("/analytics", platformAnalyticsRoutes);
+app.use("/predict", propertyPredictRoutes);
 
 /** Handle 404 errors -- this matches everything */
 app.use(function (req, res, next) {

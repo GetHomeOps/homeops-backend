@@ -4,10 +4,13 @@
   "type": "object",
   "properties": {
     "passport_id": {"type": "string", "maxLength": 255},
+    "property_name": {"type": "string", "maxLength": 255},
     "main_photo": {"type": ["string", "null"], "maxLength": 255},
     "tax_id": {"type": "string", "maxLength": 255},
     "county": {"type": "string", "maxLength": 255},
     "address": {"type": "string"},
+    "address_line_1": {"type": "string", "maxLength": 255},
+    "address_line_2": {"type": "string", "maxLength": 255},
     "city": {"type": "string", "maxLength": 255},
     "state": {"type": "string", "maxLength": 2},
     "zip": {"type": "string", "maxLength": 20},
