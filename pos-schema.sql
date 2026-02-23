@@ -377,3 +377,81 @@ CREATE TABLE account_analytics_snapshot (
     last_active_at TIMESTAMPTZ,
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- ============================================================
+-- Professional Categories
+-- ============================================================
+
+CREATE TABLE professional_categories (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    description TEXT,
+    type VARCHAR(20) NOT NULL DEFAULT 'child',
+    parent_id INTEGER REFERENCES professional_categories(id) ON DELETE CASCADE,
+    icon VARCHAR(50),
+    image_key VARCHAR(512),
+    sort_order INTEGER DEFAULT 0,
+    is_active BOOLEAN DEFAULT true,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_prof_categories_parent ON professional_categories(parent_id);
+CREATE INDEX idx_prof_categories_type ON professional_categories(type);
+
+-- ============================================================
+-- Professionals
+-- ============================================================
+
+CREATE TABLE professionals (
+    id SERIAL PRIMARY KEY,
+    first_name VARCHAR(100) NOT NULL,
+    last_name VARCHAR(100) NOT NULL,
+    company_name VARCHAR(255),
+    category_id INTEGER REFERENCES professional_categories(id),
+    subcategory_id INTEGER REFERENCES professional_categories(id),
+    description TEXT,
+    phone VARCHAR(50),
+    email VARCHAR(255),
+    website VARCHAR(255),
+    street1 VARCHAR(255),
+    street2 VARCHAR(255),
+    city VARCHAR(100),
+    state VARCHAR(100),
+    zip_code VARCHAR(20),
+    country VARCHAR(100),
+    service_area TEXT,
+    budget_level VARCHAR(10),
+    languages TEXT[] DEFAULT '{}',
+    rating NUMERIC(3,1) DEFAULT 0,
+    review_count INTEGER DEFAULT 0,
+    years_in_business INTEGER,
+    is_verified BOOLEAN DEFAULT false,
+    license_number VARCHAR(100),
+    profile_photo VARCHAR(512),
+    is_active BOOLEAN DEFAULT true,
+    account_id INTEGER REFERENCES accounts(id),
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_professionals_account ON professionals(account_id);
+CREATE INDEX idx_professionals_category ON professionals(category_id);
+CREATE INDEX idx_professionals_subcategory ON professionals(subcategory_id);
+CREATE INDEX idx_professionals_city_state ON professionals(city, state);
+CREATE INDEX idx_professionals_active ON professionals(is_active);
+
+-- ============================================================
+-- Professional Project Photos
+-- ============================================================
+
+CREATE TABLE professional_photos (
+    id SERIAL PRIMARY KEY,
+    professional_id INTEGER REFERENCES professionals(id) ON DELETE CASCADE,
+    photo_key VARCHAR(512) NOT NULL,
+    caption VARCHAR(255),
+    sort_order INTEGER DEFAULT 0,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_prof_photos_professional ON professional_photos(professional_id);

@@ -69,7 +69,7 @@ async function acceptInvitation({ rawToken, password, name }) {
   try {
     let user;
     const existingUser = await db.query(
-      `SELECT id, email, is_active FROM users WHERE email = $1`,
+      `SELECT id, email, name, role, is_active FROM users WHERE email = $1`,
       [invitation.inviteeEmail]
     );
 
@@ -81,6 +81,45 @@ async function acceptInvitation({ rawToken, password, name }) {
           `UPDATE users SET password_hash = $1, is_active = true WHERE id = $2`,
           [hashedPassword, user.id]
         );
+      }
+
+      const hasAccount = await User.userHasAccount(user.id);
+      if (!hasAccount) {
+        const userName = name || user.name || invitation.inviteeEmail;
+        const newAccount = await Account.linkNewUserToAccount({ name: userName, userId: user.id });
+
+        try {
+          const productName = (user.role === 'agent') ? 'professional' : 'basic';
+          const product = await SubscriptionProduct.getByName(productName)
+            || await SubscriptionProduct.getByName("basic");
+          if (product) {
+            const today = new Date();
+            const endDate = new Date(today);
+            endDate.setMonth(endDate.getMonth() + 1);
+            await Subscription.create({
+              accountId: newAccount.id,
+              subscriptionProductId: product.id,
+              status: "active",
+              currentPeriodStart: today.toISOString(),
+              currentPeriodEnd: endDate.toISOString(),
+            });
+          }
+        } catch (subErr) {
+          console.error("Warning: failed to auto-create subscription for existing user account", newAccount.id, subErr.message);
+        }
+
+        const existingContact = await Contact.getByEmailAndAccount(
+          invitation.inviteeEmail,
+          newAccount.id
+        );
+        if (!existingContact) {
+          const contact = await Contact.create({
+            name: userName,
+            email: invitation.inviteeEmail,
+          });
+          await Contact.addToAccount({ contactId: contact.id, accountId: newAccount.id });
+          await User.update({ id: user.id, contact: contact.id });
+        }
       }
     } else {
       if (!password || !name) {

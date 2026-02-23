@@ -3,166 +3,183 @@
 const express = require("express");
 const { ensureLoggedIn } = require("../middleware/auth");
 const { BadRequestError } = require("../expressError");
-const OpenAI = require("openai");
-const AccountUsageEvent = require("../models/accountUsageEvent");
-const { logAiUsage } = require("../services/usageService");
-const db = require("../db");
 
 const router = new express.Router();
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const ATTOM_API_KEY = process.env.ATTOM_API_KEY;
+const ATTOM_BASE_URL = "https://api.gateway.attomdata.com/propertyapi/v1.0.0";
 
-const AI_MODEL = "gpt-4o-mini";
-const DEFAULT_MONTHLY_CAP = 5.00;
+/**
+ * Map the ATTOM property/detail response into the flat field schema
+ * the frontend expects.
+ */
+function mapAttomToFields(prop) {
+  const summary = prop.summary ?? {};
+  const building = prop.building ?? {};
+  const lot = prop.lot ?? {};
+  const rooms = building.rooms ?? {};
+  const size = building.size ?? {};
+  const interior = building.interior ?? {};
+  const construction = building.construction ?? {};
+  const parking = building.parking ?? {};
+  const area = prop.area ?? {};
+  const assessment = prop.assessment ?? {};
+  const market = assessment.market ?? {};
 
-const IDENTITY_FIELDS_SCHEMA = `{
-  "propertyType": "<string e.g. Single Family, Townhouse, Condo, Multi-Family>",
-  "subType": "<string e.g. Residential>",
-  "roofType": "<string e.g. Composition, Tile, Metal>",
-  "yearBuilt": <integer or null>,
-  "effectiveYearBuilt": <integer or null>,
-  "effectiveYearBuiltSource": "<string e.g. Public Records>",
-  "sqFtTotal": <number or null>,
-  "sqFtFinished": <number or null>,
-  "sqFtUnfinished": <number or null>,
-  "garageSqFt": <number or null>,
-  "totalDwellingSqFt": <number or null>,
-  "lotSize": "<string e.g. .200 ac / 8,700 sf>",
-  "bedCount": <integer or null>,
-  "bathCount": <integer or null>,
-  "fullBaths": <integer or null>,
-  "threeQuarterBaths": <integer or null>,
-  "halfBaths": <integer or null>,
-  "numberOfShowers": <integer or null>,
-  "numberOfBathtubs": <integer or null>,
-  "fireplaces": <integer or null>,
-  "fireplaceTypes": "<string or empty>",
-  "basement": "<string e.g. Daylight, Fully Finished, None>",
-  "parkingType": "<string e.g. Attached Garage, Driveway Parking>",
-  "totalCoveredParking": <integer or null>,
-  "totalUncoveredParking": <integer or null>,
-  "schoolDistrict": "<string>",
-  "elementarySchool": "<string>",
-  "juniorHighSchool": "<string>",
-  "seniorHighSchool": "<string>",
-  "confidence": "<low|medium|high>",
-  "reasoning": "<brief one-sentence explanation>"
-}`;
+  const propTypeMap = {
+    SFR: "Single Family",
+    CONDO: "Condo",
+    TOWNHOUSE: "Townhouse",
+    APARTMENT: "Multi-Family",
+    MOBILE: "Mobile Home",
+    COOP: "Co-op",
+  };
 
-async function getUserAccountId(userId) {
-  const result = await db.query(
-    `SELECT account_id FROM account_users WHERE user_id = $1 LIMIT 1`,
-    [userId]
-  );
-  return result.rows[0]?.account_id || null;
+  const rawType = summary.proptype ?? "";
+  const propertyType =
+    propTypeMap[rawType.toUpperCase()] || summary.propclass || rawType || "";
+
+  const lotAcres = lot.lotsize1;
+  const lotSqFt = lot.lotsize2;
+  let lotSize = "";
+  if (lotAcres != null && lotSqFt != null) {
+    lotSize = `${lotAcres} ac / ${Number(lotSqFt).toLocaleString()} sf`;
+  } else if (lotAcres != null) {
+    lotSize = `${lotAcres} ac`;
+  } else if (lotSqFt != null) {
+    lotSize = `${Number(lotSqFt).toLocaleString()} sf`;
+  }
+
+  const prkgSpaces = parseInt(parking.prkgSpaces, 10) || null;
+  const prkgType = parking.prkgType ?? "";
+  let parkingType = prkgType;
+  if (prkgType && prkgSpaces) {
+    parkingType = `${prkgType} (${prkgSpaces} spaces)`;
+  }
+  const garageSqFt = parking.garageSqFt ?? parking.gaession ?? null;
+
+  const bsmtType = (interior.bsmttype ?? "").replace(/_/g, " ");
+  const bsmtSize = interior.bsmtsize;
+  let basement = bsmtType
+    ? bsmtType.charAt(0).toUpperCase() + bsmtType.slice(1).toLowerCase()
+    : "";
+  if (basement && bsmtSize) {
+    basement = `${basement} (${Number(bsmtSize).toLocaleString()} sf)`;
+  }
+
+  return {
+    propertyType,
+    subType: summary.propsubtype ?? "",
+    roofType: construction.rooftype ?? "",
+    yearBuilt: summary.yearbuilt ?? null,
+    effectiveYearBuilt: summary.effyearbuilt ?? null,
+    effectiveYearBuiltSource: summary.effyearbuilt ? "Public Records" : "",
+    sqFtTotal: size.universalsize ?? size.bldgsize ?? null,
+    sqFtFinished: size.livingsize ?? null,
+    sqFtUnfinished: bsmtSize && bsmtType?.toLowerCase()?.includes("unfinished")
+      ? bsmtSize
+      : null,
+    garageSqFt: garageSqFt ?? null,
+    totalDwellingSqFt: size.grosssize ?? size.grosssizeadjusted ?? null,
+    lotSize,
+    bedCount: rooms.beds ?? null,
+    bathCount: rooms.bathstotal ?? null,
+    fullBaths: rooms.bathsfull ?? null,
+    threeQuarterBaths: rooms.bathsthreequarter ?? null,
+    halfBaths: rooms.bathshalf ?? null,
+    numberOfShowers: null,
+    numberOfBathtubs: null,
+    fireplaces: interior.fplccount ?? null,
+    fireplaceTypes: interior.fplctype ?? "",
+    basement,
+    parkingType,
+    totalCoveredParking: prkgSpaces,
+    totalUncoveredParking: null,
+    schoolDistrict: area.munname ?? "",
+    elementarySchool: "",
+    juniorHighSchool: "",
+    seniorHighSchool: "",
+    estimatedValue: market.mktttlvalue ?? null,
+    county: area.countyname ?? "",
+  };
 }
 
-/** POST /property-details - Predict property fields from partial data. Body: property info. Enforces monthly AI budget. */
+/** POST /property-details — Look up property details from ATTOM public records. */
 router.post("/property-details", ensureLoggedIn, async function (req, res, next) {
   try {
-    const userId = res.locals.user?.id;
-    if (!userId) throw new BadRequestError("Authentication required");
-
-    const accountId = await getUserAccountId(userId);
-    if (!accountId) throw new BadRequestError("No account found for user");
-
-    const propertyInfo = req.body;
-    if (!propertyInfo || Object.keys(propertyInfo).length === 0) {
-      throw new BadRequestError("Property information is required");
+    if (!ATTOM_API_KEY) {
+      throw new BadRequestError("ATTOM API key is not configured");
     }
 
-    const spent = await AccountUsageEvent.getMonthlySpend(accountId);
-    const remaining = Math.max(0, DEFAULT_MONTHLY_CAP - spent);
-    if (remaining <= 0) {
-      return res.status(429).json({
-        error: {
-          message: `Monthly AI budget exhausted. You have spent $${spent.toFixed(2)} of your $${DEFAULT_MONTHLY_CAP.toFixed(2)} limit. Resets on the 1st of next month.`,
-          status: 429,
-          code: "BUDGET_EXCEEDED",
-          spent,
-          cap: DEFAULT_MONTHLY_CAP,
-        },
-      });
+    const { address, addressLine1, city, state, zip } = req.body ?? {};
+
+    const streetAddress = (addressLine1 || address || "").trim();
+    if (!streetAddress) {
+      throw new BadRequestError("Street address is required (address or addressLine1)");
     }
 
-    const prompt = `You are a real-estate property data analyst with access to US public records. Given the following property information, predict as many property details as you can. Use the address, city, state, zip, county, property type, and any other provided data to infer realistic values. For fields you cannot reasonably predict, use null for numbers and empty string for text.
+    let cityStateZip = "";
+    if (city && state) {
+      cityStateZip = zip ? `${city}, ${state} ${zip}` : `${city}, ${state}`;
+    } else if (zip) {
+      cityStateZip = zip;
+    }
+    if (!cityStateZip) {
+      throw new BadRequestError("City/State or ZIP is required");
+    }
 
-Property data provided:
-${JSON.stringify(propertyInfo, null, 2)}
-
-Respond ONLY with a valid JSON object in this exact shape (no markdown, no explanation):
-${IDENTITY_FIELDS_SCHEMA}`;
-
-    const completion = await openai.chat.completions.create({
-      model: AI_MODEL,
-      messages: [{ role: "user", content: prompt }],
-      temperature: 0.2,
-      max_tokens: 800,
+    const params = new URLSearchParams({
+      address1: streetAddress,
+      address2: cityStateZip,
     });
 
-    const usage = completion.usage || {};
-    await logAiUsage({
-      accountId,
-      userId,
-      model: `openai/${AI_MODEL}`,
-      promptTokens: usage.prompt_tokens || 0,
-      completionTokens: usage.completion_tokens || 0,
-      endpoint: "predict/property-details",
+    const url = `${ATTOM_BASE_URL}/property/detail?${params.toString()}`;
+
+    const response = await fetch(url, {
+      method: "GET",
+      headers: {
+        accept: "application/json",
+        apikey: ATTOM_API_KEY,
+      },
     });
 
-    const raw = completion.choices?.[0]?.message?.content?.trim();
-    if (!raw) {
-      throw new BadRequestError("No prediction returned from AI");
-    }
+    if (!response.ok) {
+      const errorBody = await response.text();
+      console.error("ATTOM API error:", response.status, errorBody);
 
-    let prediction;
-    try {
-      prediction = JSON.parse(raw);
-    } catch {
-      const jsonMatch = raw.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        prediction = JSON.parse(jsonMatch[0]);
-      } else {
-        throw new BadRequestError("AI returned invalid format");
+      if (response.status === 404 || response.status === 204) {
+        throw new BadRequestError(
+          "No property found at that address. Please verify the address and try again."
+        );
       }
+      if (response.status === 401 || response.status === 403) {
+        throw new BadRequestError("ATTOM API authentication failed. Please contact support.");
+      }
+      if (response.status === 429) {
+        throw new BadRequestError("ATTOM API rate limit reached. Please try again in a few minutes.");
+      }
+      throw new BadRequestError(`Property lookup failed (status ${response.status}). Please try again.`);
     }
 
-    const updatedSpent = await AccountUsageEvent.getMonthlySpend(accountId);
-    const updatedRemaining = Math.max(0, DEFAULT_MONTHLY_CAP - updatedSpent);
+    const data = await response.json();
+    const properties = data.property;
+
+    if (!properties || properties.length === 0) {
+      throw new BadRequestError(
+        "No property records found at that address. Please verify the address and try again."
+      );
+    }
+
+    const prediction = mapAttomToFields(properties[0]);
 
     return res.json({
       prediction,
-      usage: {
-        spent: updatedSpent,
-        remaining: updatedRemaining,
-        cap: DEFAULT_MONTHLY_CAP,
-      },
+      source: "attom",
     });
   } catch (err) {
     if (err instanceof BadRequestError) return next(err);
-    if (err.status === 429) return next(err);
-    console.error("OpenAI prediction error:", err);
-    return next(new BadRequestError("Failed to generate prediction. Please try again."));
-  }
-});
-
-/** GET /usage - Current account's AI usage and remaining budget. */
-router.get("/usage", ensureLoggedIn, async function (req, res, next) {
-  try {
-    const userId = res.locals.user?.id;
-    if (!userId) throw new BadRequestError("Authentication required");
-
-    const accountId = await getUserAccountId(userId);
-    if (!accountId) throw new BadRequestError("No account found for user");
-
-    const spent = await AccountUsageEvent.getMonthlySpend(accountId);
-    const remaining = Math.max(0, DEFAULT_MONTHLY_CAP - spent);
-
-    return res.json({
-      usage: { allowed: remaining > 0, spent, remaining, cap: DEFAULT_MONTHLY_CAP },
-    });
-  } catch (err) {
-    return next(err);
+    console.error("ATTOM property lookup error:", err);
+    return next(new BadRequestError("Failed to look up property. Please try again."));
   }
 });
 

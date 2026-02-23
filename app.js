@@ -34,6 +34,8 @@ const invitationsRoutes = require("./routes/invitations");
 const platformEngagementRoutes = require("./routes/platformEngagement");
 const platformAnalyticsRoutes = require("./routes/platformAnalytics");
 const propertyPredictRoutes = require("./routes/propertyPredict");
+const professionalCategoriesRoutes = require("./routes/professionalCategories");
+const professionalsRoutes = require("./routes/professionals");
 
 const app = express();
 
@@ -92,6 +94,8 @@ app.use("/invitations", invitationsRoutes);
 app.use("/engagement", platformEngagementRoutes);
 app.use("/analytics", platformAnalyticsRoutes);
 app.use("/predict", propertyPredictRoutes);
+app.use("/professional-categories", professionalCategoriesRoutes);
+app.use("/professionals", professionalsRoutes);
 
 app.use(function (req, res, next) {
   throw new NotFoundError();
