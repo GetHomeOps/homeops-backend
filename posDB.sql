@@ -9,7 +9,11 @@ CREATE DATABASE posdb;
 \connect posdb;
 
 -- Drop tables in reverse dependency order
+DROP TABLE IF EXISTS support_tickets CASCADE;
 DROP TABLE IF EXISTS saved_professionals CASCADE;
+DROP TABLE IF EXISTS professional_photos CASCADE;
+DROP TABLE IF EXISTS professionals CASCADE;
+DROP TABLE IF EXISTS professional_categories CASCADE;
 DROP TABLE IF EXISTS maintenance_events CASCADE;
 DROP TABLE IF EXISTS account_usage_events CASCADE;
 DROP TABLE IF EXISTS account_analytics_snapshot CASCADE;
