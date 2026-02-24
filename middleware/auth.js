@@ -1,24 +1,5 @@
 "use strict";
 
-/**
- * Authentication & Authorization Middleware
- *
- * Provides JWT verification and role/resource-based access control.
- *
- * Middleware:
- * - authenticateJWT: Verify Bearer token, set res.locals.user (optional)
- * - ensureLoggedIn: Require authenticated user
- * - ensureSuperAdmin: Require super_admin role
- * - ensurePlatformAdmin: Require super_admin or admin
- * - ensureAdminOrSuperAdmin: Require super_admin, admin, or agent
- * - ensureCorrectUser: Require current user matches params.email
- * - ensurePropertyAccess: Require property_users membership or admin
- * - ensurePropertyOwner: Require owner role on property
- * - ensureUserCanAccessAccountByParam: Require account_users membership
- * - ensureAgentOrSelf: Require agent or self for agent-scoped routes
- * - ensureCanViewUser: Require shared account to view user
- */
-
 const jwt = require("jsonwebtoken");
 const { SECRET_KEY } = require("../config");
 const { UnauthorizedError, ForbiddenError } = require("../expressError");
@@ -26,6 +7,7 @@ const Account = require("../models/account");
 const User = require("../models/user");
 const db = require("../db");
 
+/** Verify Bearer token, set res.locals.user (optional). Ignores invalid tokens. */
 function authenticateJWT(req, res, next) {
   const authHeader = req.headers?.authorization;
   if (authHeader) {
@@ -39,28 +21,44 @@ function authenticateJWT(req, res, next) {
   return next();
 }
 
-function ensureSuperAdmin(req, res, next) {
-  if (res.locals.user?.role === 'super_admin') return next();
-  throw new UnauthorizedError();
+/** Require super_admin role. Re-fetches user from DB if JWT role is stale. */
+async function ensureSuperAdmin(req, res, next) {
+  try {
+    if (res.locals.user?.role === "super_admin") return next();
+    const userId = res.locals.user?.id;
+    if (!userId) throw new UnauthorizedError();
+    const user = await User.getById(userId);
+    if (user?.role === "super_admin") {
+      res.locals.user.role = user.role;
+      return next();
+    }
+    throw new UnauthorizedError();
+  } catch (err) {
+    next(err);
+  }
 }
 
+/** Require super_admin or admin role. */
 function ensurePlatformAdmin(req, res, next) {
   const role = res.locals.user?.role;
   if (role === 'super_admin' || role === 'admin') return next();
   throw new UnauthorizedError();
 }
 
+/** Require authenticated user (res.locals.user.email must exist). */
 function ensureLoggedIn(req, res, next) {
   if (res.locals.user?.email) return next();
   throw new UnauthorizedError();
 }
 
+/** Require current user matches params.email. */
 async function ensureCorrectUser(req, res, next) {
   const currentUser = res.locals.user?.email;
   if (currentUser && currentUser === req.params.email) return next();
   throw new UnauthorizedError();
 }
 
+/** Require property_users membership or admin. Options: scope, param, fromBody. */
 function ensurePropertyAccess(options = {}) {
   const scope = options.scope === "user" ? "user" : "property";
   const param = options.param ?? (scope === "user" ? "userId" : "uid");
@@ -112,6 +110,7 @@ function ensurePropertyAccess(options = {}) {
   };
 }
 
+/** Require owner role on property. */
 function ensurePropertyOwner(paramName = "propertyId") {
   return async function _ensurePropertyOwner(req, res, next) {
     try {
@@ -143,6 +142,7 @@ function ensurePropertyOwner(paramName = "propertyId") {
   };
 }
 
+/** Require account_users membership for the account in params. */
 function ensureUserCanAccessAccountByParam(paramName = "accountId") {
   return async function _ensureUserCanAccessAccountByParam(req, res, next) {
     try {
@@ -160,6 +160,25 @@ function ensureUserCanAccessAccountByParam(paramName = "accountId") {
   };
 }
 
+/** Require account_users membership for the account in req.body. Used for POST routes. */
+function ensureUserCanAccessAccountFromBody(bodyKey = "account_id") {
+  return async function _ensureUserCanAccessAccountFromBody(req, res, next) {
+    try {
+      const userId = res.locals.user?.id;
+      if (!userId) throw new UnauthorizedError("Authentication required.");
+      if (res.locals.user.role === "super_admin" || res.locals.user.role === "admin") return next();
+      const accountId = req.body?.[bodyKey];
+      if (!accountId) throw new UnauthorizedError("Account identifier required.");
+      const isAuthorized = await Account.isUserLinkedToAccount(userId, accountId);
+      if (!isAuthorized) throw new UnauthorizedError("Not authorized to access this account.");
+      return next();
+    } catch (err) {
+      return next(err);
+    }
+  };
+}
+
+/** Require agent or self for agent-scoped routes. */
 function ensureAgentOrSelf(paramName = "agentId") {
   return function _ensureAgentOrSelf(req, res, next) {
     const user = res.locals.user;
@@ -170,6 +189,7 @@ function ensureAgentOrSelf(paramName = "agentId") {
   };
 }
 
+/** Require shared account to view user. */
 function ensureCanViewUser(paramName = "email") {
   return async function _ensureCanViewUser(req, res, next) {
     try {
@@ -192,6 +212,7 @@ function ensureCanViewUser(paramName = "email") {
   };
 }
 
+/** Require super_admin, admin, or agent role. */
 function ensureAdminOrSuperAdmin(req, res, next) {
   const userRole = res.locals.user?.role;
   if (userRole === 'super_admin' || userRole === 'admin' || userRole === 'agent') {
@@ -210,6 +231,7 @@ module.exports = {
   ensurePropertyAccess,
   ensurePropertyOwner,
   ensureUserCanAccessAccountByParam,
+  ensureUserCanAccessAccountFromBody,
   ensureAgentOrSelf,
   ensureCanViewUser,
 };

@@ -46,7 +46,8 @@ class User {
              phone,
              role,
              contact_id AS "contact",
-             is_active AS "isActive"
+             is_active AS "isActive",
+             mfa_enabled AS "mfaEnabled"
       FROM users
       WHERE email = $1`,
       [email]
@@ -73,7 +74,7 @@ class User {
  *
  * Throws BadRequestError on duplicates.
  **/
-  static async register({ name, email, password, phone = null, role = 'homeowner', contact = 0, is_active = false }) {
+  static async register({ name, email, password, phone = null, role = 'homeowner', contact = 0, is_active = false, onboarding_completed }) {
     if (name == null || (typeof name === 'string' && name.trim() === '')) {
       throw new BadRequestError("Name is required");
     }
@@ -100,16 +101,17 @@ class User {
     // Ensure contact is an integer, defaulting to 0 if null/undefined
     const contactId = contact === null || contact === undefined ? 0 : parseInt(contact, 10) || 0;
 
+    const includeOnboarding = onboarding_completed === false;
+    const cols = includeOnboarding
+      ? "email, password_hash, name, phone, role, contact_id, is_active, onboarding_completed"
+      : "email, password_hash, name, phone, role, contact_id, is_active";
+    const vals = includeOnboarding ? "$1,$2,$3,$4,$5,$6,$7,$8" : "$1,$2,$3,$4,$5,$6,$7";
+    const params = [email, hashedPassword, name, phone, role, contactId, is_active];
+    if (includeOnboarding) params.push(false);
+
     const result = await db.query(`
-        INSERT INTO users (
-              email,
-              password_hash,
-              name,
-              phone,
-              role,
-              contact_id,
-              is_active)
-        VALUES ($1,$2,$3,$4,$5,$6,$7)
+        INSERT INTO users (${cols})
+        VALUES (${vals})
         RETURNING
               id,
               email,
@@ -117,15 +119,7 @@ class User {
               phone,
               role,
               contact_id AS "contact",
-              is_active`, [
-      email,
-      hashedPassword,
-      name,
-      phone,
-      role,
-      contactId,
-      is_active
-    ]
+              is_active`, params
     );
 
     const user = result.rows[0];
@@ -147,10 +141,90 @@ class User {
               role,
               contact_id AS "contact",
               is_active AS "isActive",
-              image
+              image,
+              auth_provider AS "authProvider",
+              google_sub AS "googleSub",
+              avatar_url AS "avatarUrl",
+              email_verified AS "emailVerified",
+              mfa_enabled AS "mfaEnabled",
+              mfa_enrolled_at AS "mfaEnrolledAt",
+              subscription_tier AS "subscriptionTier",
+              onboarding_completed AS "onboardingCompleted"
        FROM users
        WHERE id = $1`,
       [id]
+    );
+    return result.rows[0] || null;
+  }
+
+  /** Find user by Google sub. Returns null if not found. */
+  static async findByGoogleSub(googleSub) {
+    if (!googleSub) return null;
+    const result = await db.query(
+      `SELECT id, email, name, phone, role, contact_id AS "contact",
+              is_active AS "isActive", image, auth_provider AS "authProvider",
+              google_sub AS "googleSub", avatar_url AS "avatarUrl",
+              email_verified AS "emailVerified",
+              subscription_tier AS "subscriptionTier",
+              onboarding_completed AS "onboardingCompleted"
+       FROM users WHERE google_sub = $1`,
+      [googleSub]
+    );
+    return result.rows[0] || null;
+  }
+
+  /** Find user by email. Returns null if not found. */
+  static async findByEmailOrNull(email) {
+    if (!email) return null;
+    const result = await db.query(
+      `SELECT id, email, name, phone, role, contact_id AS "contact",
+              is_active AS "isActive", image, auth_provider AS "authProvider",
+              google_sub AS "googleSub", avatar_url AS "avatarUrl",
+              email_verified AS "emailVerified",
+              subscription_tier AS "subscriptionTier",
+              onboarding_completed AS "onboardingCompleted"
+       FROM users WHERE email = $1`,
+      [email]
+    );
+    return result.rows[0] || null;
+  }
+
+  /** Register a new user via Google OAuth (no password).
+   * Sets onboarding_completed = false so user is redirected to onboarding flow. */
+  static async registerGoogle({ email, name, avatarUrl, emailVerified, googleSub }) {
+    if (!email || !name || !googleSub) {
+      throw new BadRequestError("Email, name, and googleSub are required for Google signup");
+    }
+    const duplicateCheck = await db.query(
+      `SELECT id FROM users WHERE email = $1 OR google_sub = $2`,
+      [email, googleSub]
+    );
+    if (duplicateCheck.rows.length > 0) {
+      throw new BadRequestError(`Account already exists for ${email}`);
+    }
+    const result = await db.query(
+      `INSERT INTO users (email, name, auth_provider, google_sub, avatar_url, email_verified, is_active, onboarding_completed)
+       VALUES ($1, $2, 'google', $3, $4, $5, true, false)
+       RETURNING id, email, name, phone, role, contact_id AS "contact",
+                 is_active AS "isActive", image, auth_provider AS "authProvider",
+                 google_sub AS "googleSub", avatar_url AS "avatarUrl",
+                 email_verified AS "emailVerified",
+                 subscription_tier AS "subscriptionTier",
+                 onboarding_completed AS "onboardingCompleted"`,
+      [email, name, googleSub, avatarUrl || null, emailVerified ?? true]
+    );
+    return result.rows[0];
+  }
+
+  /** Link Google account to existing user (e.g. local user signing in with Google). */
+  static async linkGoogle(userId, googleSub) {
+    const result = await db.query(
+      `UPDATE users SET google_sub = $1, auth_provider = 'google' WHERE id = $2
+       RETURNING id, email, name, phone, role, contact_id AS "contact",
+                 is_active AS "isActive", image, auth_provider AS "authProvider",
+                 google_sub AS "googleSub", avatar_url AS "avatarUrl",
+                 email_verified AS "emailVerified"`,
+      [googleSub, userId]
     );
     return result.rows[0] || null;
   }
@@ -171,7 +245,15 @@ class User {
                role,
                contact_id AS "contact",
                is_active AS "isActive",
-               image
+               image,
+               auth_provider AS "authProvider",
+               google_sub AS "googleSub",
+               avatar_url AS "avatarUrl",
+               email_verified AS "emailVerified",
+               mfa_enabled AS "mfaEnabled",
+               mfa_enrolled_at AS "mfaEnrolledAt",
+               subscription_tier AS "subscriptionTier",
+               onboarding_completed AS "onboardingCompleted"
         FROM users
         WHERE email=$1`,
         [email]
@@ -337,6 +419,25 @@ class User {
     }
   }
 
+  /** Complete onboarding for Google OAuth signup. Updates role, subscriptionTier, onboardingCompleted. */
+  static async completeOnboarding(userId, { role, subscriptionTier }) {
+    const result = await db.query(
+      `UPDATE users
+       SET role = $1, subscription_tier = $2, onboarding_completed = true
+       WHERE id = $3
+       RETURNING id, email, name, phone, role, contact_id AS "contact",
+                 is_active AS "isActive", image, auth_provider AS "authProvider",
+                 google_sub AS "googleSub", avatar_url AS "avatarUrl",
+                 email_verified AS "emailVerified",
+                 subscription_tier AS "subscriptionTier",
+                 onboarding_completed AS "onboardingCompleted"`,
+      [role, subscriptionTier || null, userId]
+    );
+    const user = result.rows[0];
+    if (!user) throw new NotFoundError(`No user: ${userId}`);
+    return user;
+  }
+
 
   /** Remove user. Returns removed user id
    *
@@ -480,6 +581,36 @@ class User {
     } catch (err) {
       throw err;
     }
+  }
+
+  /* ----- MFA functions ----- */
+
+  /** Get decrypted TOTP secret for a user. Internal use only. */
+  static async getMfaSecret(userId) {
+    const result = await db.query(
+      `SELECT mfa_secret_encrypted AS "secretEncrypted" FROM users WHERE id = $1`,
+      [userId]
+    );
+    const row = result.rows[0];
+    if (!row || !row.secretEncrypted) return null;
+    const { decrypt } = require("../helpers/encryption");
+    return decrypt(row.secretEncrypted);
+  }
+
+  /** Set user as MFA enrolled with encrypted secret. */
+  static async setMfaEnrolled(userId, encryptedSecret) {
+    await db.query(
+      `UPDATE users SET mfa_enabled = true, mfa_secret_encrypted = $1, mfa_enrolled_at = NOW() WHERE id = $2`,
+      [encryptedSecret, userId]
+    );
+  }
+
+  /** Clear MFA for user. */
+  static async clearMfa(userId) {
+    await db.query(
+      `UPDATE users SET mfa_enabled = false, mfa_secret_encrypted = NULL, mfa_enrolled_at = NULL WHERE id = $1`,
+      [userId]
+    );
   }
 }
 

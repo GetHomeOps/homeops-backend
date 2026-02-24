@@ -19,6 +19,10 @@ const { NotFoundError, BadRequestError } = require("../expressError");
 /** Valid event types for platform engagement tracking. */
 const VALID_EVENT_TYPES = [
   "login",
+  "mfa_enabled",
+  "mfa_disabled",
+  "mfa_success",
+  "mfa_failure",
   "page_view",
   "property_created",
   "property_updated",

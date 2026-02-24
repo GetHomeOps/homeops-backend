@@ -42,8 +42,6 @@ const propertyStructure = {
           { key: "subType", label: "Sub Type" },
           { key: "roofType", label: "Roof" },
           { key: "yearBuilt", label: "Year Built" },
-          { key: "effectiveYearBuilt", label: "Effective Yr Built" },
-          { key: "effectiveYearBuiltSource", label: "Effective Yr Built Source" },
         ],
       },
       {

@@ -24,7 +24,14 @@ router.get("/", ensureLoggedIn, async function (req, res, next) {
 router.get("/hierarchy", ensureLoggedIn, async function (req, res, next) {
   try {
     const hierarchy = await ProfessionalCategory.getHierarchy();
-    return res.json({ hierarchy });
+    const enriched = await Promise.all(
+      hierarchy.map(async (parent) => {
+        const enrichedParent = await addPresignedUrlToItem(parent, "image_key", "image_url");
+        const enrichedChildren = await addPresignedUrlsToItems(parent.children || [], "image_key", "image_url");
+        return { ...enrichedParent, children: enrichedChildren };
+      }),
+    );
+    return res.json({ hierarchy: enriched });
   } catch (err) {
     return next(err);
   }

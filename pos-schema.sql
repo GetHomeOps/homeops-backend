@@ -4,7 +4,47 @@
 -- invitation system, usage tracking, role cleanup
 -- ============================================================
 
+-- ============================================================
+-- Drop existing objects (children before parents)
+-- ============================================================
+
+DROP TABLE IF EXISTS support_tickets CASCADE;
+DROP TABLE IF EXISTS saved_professionals CASCADE;
+DROP TABLE IF EXISTS professional_photos CASCADE;
+DROP TABLE IF EXISTS professionals CASCADE;
+DROP TABLE IF EXISTS professional_categories CASCADE;
+DROP TABLE IF EXISTS maintenance_events CASCADE;
+DROP TABLE IF EXISTS account_analytics_snapshot CASCADE;
+DROP TABLE IF EXISTS daily_metrics_snapshot CASCADE;
+DROP TABLE IF EXISTS platform_engagement_events CASCADE;
+DROP TABLE IF EXISTS account_usage_events CASCADE;
+DROP TABLE IF EXISTS account_subscriptions CASCADE;
+DROP TABLE IF EXISTS subscription_products CASCADE;
+DROP TABLE IF EXISTS invitations CASCADE;
+DROP TABLE IF EXISTS property_documents CASCADE;
+DROP TABLE IF EXISTS property_maintenance CASCADE;
+DROP TABLE IF EXISTS property_systems CASCADE;
+DROP TABLE IF EXISTS property_users CASCADE;
+DROP TABLE IF EXISTS properties CASCADE;
+DROP TABLE IF EXISTS account_contacts CASCADE;
+DROP TABLE IF EXISTS contacts CASCADE;
+DROP TABLE IF EXISTS mfa_enrollment_temp CASCADE;
+DROP TABLE IF EXISTS mfa_backup_codes CASCADE;
+DROP TABLE IF EXISTS refresh_tokens CASCADE;
+DROP TABLE IF EXISTS account_users CASCADE;
+DROP TABLE IF EXISTS accounts CASCADE;
+DROP TABLE IF EXISTS users CASCADE;
+
+DROP TYPE IF EXISTS user_role CASCADE;
+DROP TYPE IF EXISTS account_role CASCADE;
+DROP TYPE IF EXISTS property_role CASCADE;
+DROP TYPE IF EXISTS invitation_type CASCADE;
+DROP TYPE IF EXISTS invitation_status CASCADE;
+DROP TYPE IF EXISTS contact_type CASCADE;
+
+-- ============================================================
 -- ENUM Types
+-- ============================================================
 CREATE TYPE user_role AS ENUM (
   'super_admin', 'admin', 'agent', 'homeowner',
   'insurance', 'lender', 'attorney'
@@ -23,13 +63,22 @@ CREATE TYPE contact_type AS ENUM ('individual', 'company');
 CREATE TABLE users (
     id SERIAL PRIMARY KEY,
     email VARCHAR(255) UNIQUE NOT NULL,
-    password_hash VARCHAR(255) NOT NULL,
+    password_hash VARCHAR(255),
     name VARCHAR(100) NOT NULL,
     phone VARCHAR(50),
     role user_role DEFAULT 'homeowner',
     contact_id INTEGER DEFAULT 0,
     is_active BOOLEAN DEFAULT false,
     image VARCHAR(500),
+    auth_provider VARCHAR(20) DEFAULT 'local',
+    google_sub VARCHAR(255) UNIQUE,
+    avatar_url VARCHAR(500),
+    email_verified BOOLEAN,
+    mfa_enabled BOOLEAN DEFAULT false,
+    mfa_secret_encrypted TEXT,
+    mfa_enrolled_at TIMESTAMPTZ,
+    subscription_tier VARCHAR(50),
+    onboarding_completed BOOLEAN DEFAULT true,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -70,6 +119,29 @@ CREATE TABLE refresh_tokens (
 
 CREATE INDEX idx_refresh_tokens_user_id ON refresh_tokens(user_id);
 CREATE INDEX idx_refresh_tokens_expires_at ON refresh_tokens(expires_at);
+
+-- ============================================================
+-- MFA (TOTP + Backup Codes)
+-- ============================================================
+
+CREATE TABLE mfa_backup_codes (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    code_hash TEXT NOT NULL,
+    used_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX idx_mfa_backup_codes_user_id ON mfa_backup_codes(user_id);
+
+CREATE TABLE mfa_enrollment_temp (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE UNIQUE,
+    secret_encrypted TEXT NOT NULL,
+    expires_at TIMESTAMPTZ NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX idx_mfa_enrollment_temp_user_id ON mfa_enrollment_temp(user_id);
+CREATE INDEX idx_mfa_enrollment_temp_expires_at ON mfa_enrollment_temp(expires_at);
 
 -- ============================================================
 -- Contacts
@@ -455,3 +527,79 @@ CREATE TABLE professional_photos (
 );
 
 CREATE INDEX idx_prof_photos_professional ON professional_photos(professional_id);
+
+-- ============================================================
+-- Saved Professionals (user favorites)
+-- ============================================================
+
+CREATE TABLE saved_professionals (
+    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    professional_id INTEGER REFERENCES professionals(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    PRIMARY KEY (user_id, professional_id)
+);
+
+CREATE INDEX idx_saved_professionals_user ON saved_professionals(user_id);
+
+-- ============================================================
+-- Maintenance Events (scheduled maintenance)
+-- ============================================================
+
+CREATE TABLE maintenance_events (
+    id SERIAL PRIMARY KEY,
+    property_id INTEGER NOT NULL REFERENCES properties(id) ON DELETE CASCADE,
+    system_key VARCHAR(50) NOT NULL,
+    system_name VARCHAR(100),
+    contractor_id INTEGER,
+    contractor_source VARCHAR(20),
+    contractor_name VARCHAR(255),
+    scheduled_date DATE NOT NULL,
+    scheduled_time TIME,
+    recurrence_type VARCHAR(20) DEFAULT 'one-time',
+    recurrence_interval_value INTEGER,
+    recurrence_interval_unit VARCHAR(10),
+    alert_timing VARCHAR(10) DEFAULT '3d',
+    alert_custom_days INTEGER,
+    email_reminder BOOLEAN DEFAULT false,
+    message_enabled BOOLEAN DEFAULT false,
+    message_body TEXT,
+    status VARCHAR(30) DEFAULT 'scheduled',
+    timezone VARCHAR(50),
+    created_by INTEGER REFERENCES users(id),
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_maintenance_events_property ON maintenance_events(property_id);
+CREATE INDEX idx_maintenance_events_date ON maintenance_events(scheduled_date);
+CREATE INDEX idx_maintenance_events_status ON maintenance_events(status);
+
+-- ============================================================
+-- Support Tickets (support & feedback)
+-- ============================================================
+
+CREATE TABLE support_tickets (
+    id SERIAL PRIMARY KEY,
+    type VARCHAR(20) NOT NULL CHECK (type IN ('support', 'feedback')),
+    subject VARCHAR(500) NOT NULL,
+    description TEXT NOT NULL,
+    status VARCHAR(30) NOT NULL DEFAULT 'new' CHECK (status IN (
+        'new', 'working_on_it', 'solved',
+        'waiting_on_user', 'resolved', 'closed',
+        'under_review', 'planned', 'implemented', 'rejected'
+    )),
+    subscription_tier VARCHAR(50),
+    priority_score INTEGER NOT NULL DEFAULT 10,
+    created_by INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    assigned_to INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    internal_notes TEXT,
+    attachment_keys TEXT[],
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_support_tickets_created_by ON support_tickets(created_by);
+CREATE INDEX idx_support_tickets_account_id ON support_tickets(account_id);
+CREATE INDEX idx_support_tickets_status ON support_tickets(status);
+CREATE INDEX idx_support_tickets_priority ON support_tickets(priority_score DESC, created_at ASC);

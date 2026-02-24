@@ -1,0 +1,25 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "http://example.com/maintenanceEventUpdate.json",
+  "type": "object",
+  "properties": {
+    "system_key":                { "type": "string", "maxLength": 50 },
+    "system_name":               { "type": ["string", "null"], "maxLength": 100 },
+    "contractor_id":             { "type": ["integer", "null"] },
+    "contractor_source":         { "type": ["string", "null"], "enum": ["contact", "professional", null] },
+    "contractor_name":           { "type": ["string", "null"], "maxLength": 255 },
+    "scheduled_date":            { "type": "string", "format": "date" },
+    "scheduled_time":            { "type": ["string", "null"] },
+    "recurrence_type":           { "type": "string", "enum": ["one-time", "quarterly", "semi-annually", "annually", "custom"] },
+    "recurrence_interval_value": { "type": ["integer", "null"], "minimum": 1 },
+    "recurrence_interval_unit":  { "type": ["string", "null"], "enum": ["days", "weeks", "months", null] },
+    "alert_timing":              { "type": "string", "enum": ["1d", "3d", "1w", "2w", "custom"] },
+    "alert_custom_days":         { "type": ["integer", "null"], "minimum": 1 },
+    "email_reminder":            { "type": "boolean" },
+    "message_enabled":           { "type": "boolean" },
+    "message_body":              { "type": ["string", "null"] },
+    "status":                    { "type": "string", "enum": ["scheduled", "completed", "cancelled"] },
+    "timezone":                  { "type": ["string", "null"], "maxLength": 50 }
+  },
+  "additionalProperties": false
+}

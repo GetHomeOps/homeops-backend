@@ -1,5 +1,7 @@
 "use strict";
 
+const fs = require("fs");
+const path = require("path");
 const express = require("express");
 const { ensureLoggedIn } = require("../middleware/auth");
 const { BadRequestError } = require("../expressError");
@@ -25,6 +27,12 @@ function mapAttomToFields(prop) {
   const area = prop.area ?? {};
   const assessment = prop.assessment ?? {};
   const market = assessment.market ?? {};
+  const owner = prop.owner ?? {};
+  const owner1 = owner.owner1 ?? {};
+  const owner2 = owner.owner2 ?? {};
+  const owner3 = owner.owner3 ?? {};
+  const identifier = prop.identifier ?? {};
+  const addr = prop.address ?? {};
 
   const propTypeMap = {
     SFR: "Single Family",
@@ -67,13 +75,33 @@ function mapAttomToFields(prop) {
     basement = `${basement} (${Number(bsmtSize).toLocaleString()} sf)`;
   }
 
+  // Owner names from ATTOM owner.owner1 / owner.owner2 / owner.owner3 (firstnameandmi + lastname)
+  const owner1Name = [owner1.firstnameandmi, owner1.lastname].filter(Boolean).join(" ").trim() || null;
+  const owner2Raw = [owner2.firstnameandmi, owner2.lastname].filter(Boolean).join(" ").trim() || null;
+  const owner3Raw = [owner3.firstnameandmi, owner3.lastname].filter(Boolean).join(" ").trim() || null;
+  const owner2Name = owner2Raw || owner3Raw || null;
+  const mailingOneLine = owner.mailingaddressoneline ?? owner.mailingAddressOneLine ?? "";
+  // Parse city from "123 Main St, City, ST 12345" if no dedicated city field
+  let ownerCity = owner.mailingcity ?? owner.mailingCity ?? null;
+  if (!ownerCity && mailingOneLine) {
+    const parts = mailingOneLine.split(",").map((p) => p.trim());
+    if (parts.length >= 2) ownerCity = parts[1];
+  }
+
+  const taxId = identifier.apn ?? identifier.obPropId ?? identifier.parcelNumber ?? "";
+  // ATTOM addr.line2 contains city, state, zip — NOT apt/suite. Only use secondaryUnit for addressLine2.
+  const addressLine2 = addr.secondaryUnit ?? "";
+
   return {
+    ownerName: owner1Name ?? "",
+    ownerName2: owner2Name ?? "",
+    ownerCity: ownerCity ?? "",
+    taxId: taxId || "",
+    addressLine2: addressLine2 || "",
     propertyType,
     subType: summary.propsubtype ?? "",
     roofType: construction.rooftype ?? "",
     yearBuilt: summary.yearbuilt ?? null,
-    effectiveYearBuilt: summary.effyearbuilt ?? null,
-    effectiveYearBuiltSource: summary.effyearbuilt ? "Public Records" : "",
     sqFtTotal: size.universalsize ?? size.bldgsize ?? null,
     sqFtFinished: size.livingsize ?? null,
     sqFtUnfinished: bsmtSize && bsmtType?.toLowerCase()?.includes("unfinished")
@@ -133,7 +161,7 @@ router.post("/property-details", ensureLoggedIn, async function (req, res, next)
       address2: cityStateZip,
     });
 
-    const url = `${ATTOM_BASE_URL}/property/detail?${params.toString()}`;
+    const url = `${ATTOM_BASE_URL}/property/detailowner?${params.toString()}`;
 
     const response = await fetch(url, {
       method: "GET",
@@ -147,9 +175,9 @@ router.post("/property-details", ensureLoggedIn, async function (req, res, next)
       const errorBody = await response.text();
       console.error("ATTOM API error:", response.status, errorBody);
 
-      if (response.status === 404 || response.status === 204) {
+      if (response.status === 404 || response.status === 204 || response.status === 400) {
         throw new BadRequestError(
-          "No property found at that address. Please verify the address and try again."
+          "Property could not be found. Please verify the address and try again."
         );
       }
       if (response.status === 401 || response.status === 403) {
@@ -158,15 +186,27 @@ router.post("/property-details", ensureLoggedIn, async function (req, res, next)
       if (response.status === 429) {
         throw new BadRequestError("ATTOM API rate limit reached. Please try again in a few minutes.");
       }
-      throw new BadRequestError(`Property lookup failed (status ${response.status}). Please try again.`);
+      throw new BadRequestError(
+        "Property could not be found. Please verify the address and try again."
+      );
     }
 
     const data = await response.json();
+
+    // Debug: write full ATTOM response to file (console.log can truncate large JSON)
+    const debugPath = path.join(process.cwd(), "attom-debug.json");
+    try {
+      fs.writeFileSync(debugPath, JSON.stringify(data, null, 2), "utf8");
+      console.log("ATTOM API raw response written to", debugPath);
+    } catch (writeErr) {
+      console.error("ATTOM debug write failed:", writeErr.message);
+    }
+
     const properties = data.property;
 
     if (!properties || properties.length === 0) {
       throw new BadRequestError(
-        "No property records found at that address. Please verify the address and try again."
+        "Property could not be found. Please verify the address and try again."
       );
     }
 
@@ -179,7 +219,7 @@ router.post("/property-details", ensureLoggedIn, async function (req, res, next)
   } catch (err) {
     if (err instanceof BadRequestError) return next(err);
     console.error("ATTOM property lookup error:", err);
-    return next(new BadRequestError("Failed to look up property. Please try again."));
+    return next(new BadRequestError("Property could not be found. Please verify the address and try again."));
   }
 });
 

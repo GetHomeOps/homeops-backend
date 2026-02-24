@@ -40,6 +40,15 @@ class Professional {
     const values = [];
     let idx = 1;
 
+    let savedJoin = "";
+    let savedCol = "FALSE AS saved";
+    if (filters.user_id) {
+      savedJoin = `LEFT JOIN saved_professionals sp ON sp.professional_id = p.id AND sp.user_id = $${idx}`;
+      savedCol = "(sp.user_id IS NOT NULL) AS saved";
+      values.push(filters.user_id);
+      idx++;
+    }
+
     if (filters.category_id) {
       conditions.push(`(p.category_id = $${idx} OR p.subcategory_id = $${idx})`);
       values.push(filters.category_id);
@@ -79,10 +88,12 @@ class Professional {
     const result = await db.query(
       `SELECT p.*,
               pc.name AS category_name,
-              sc.name AS subcategory_name
+              sc.name AS subcategory_name,
+              ${savedCol}
        FROM professionals p
        LEFT JOIN professional_categories pc ON pc.id = p.category_id
        LEFT JOIN professional_categories sc ON sc.id = p.subcategory_id
+       ${savedJoin}
        ${where}
        ORDER BY p.rating DESC, p.review_count DESC`,
       values,
@@ -90,16 +101,21 @@ class Professional {
     return result.rows;
   }
 
-  static async get(id) {
+  static async get(id, userId = null) {
+    const savedCol = userId
+      ? `(EXISTS (SELECT 1 FROM saved_professionals sp WHERE sp.professional_id = p.id AND sp.user_id = $2)) AS saved`
+      : "false AS saved";
+    const values = userId ? [id, userId] : [id];
     const result = await db.query(
       `SELECT p.*,
               pc.name AS category_name,
-              sc.name AS subcategory_name
+              sc.name AS subcategory_name,
+              ${savedCol}
        FROM professionals p
        LEFT JOIN professional_categories pc ON pc.id = p.category_id
        LEFT JOIN professional_categories sc ON sc.id = p.subcategory_id
        WHERE p.id = $1`,
-      [id],
+      values,
     );
     const pro = result.rows[0];
     if (!pro) throw new NotFoundError(`No professional: ${id}`);

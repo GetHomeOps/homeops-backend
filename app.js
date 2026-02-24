@@ -15,11 +15,13 @@
 const express = require('express');
 const cors = require('cors');
 const compression = require('compression');
+const cookieParser = require('cookie-parser');
 const rateLimit = require('express-rate-limit');
 const { NotFoundError } = require("./expressError");
-const { authenticateJWT } = require("./middleware/auth");
+const { authenticateJWT, ensureLoggedIn } = require("./middleware/auth");
 
 const authRoutes = require("./routes/auth");
+const mfaRoutes = require("./routes/mfa");
 const usersRoutes = require("./routes/users");
 const accountsRoutes = require("./routes/accounts");
 const contactsRoutes = require("./routes/contacts");
@@ -36,6 +38,9 @@ const platformAnalyticsRoutes = require("./routes/platformAnalytics");
 const propertyPredictRoutes = require("./routes/propertyPredict");
 const professionalCategoriesRoutes = require("./routes/professionalCategories");
 const professionalsRoutes = require("./routes/professionals");
+const maintenanceEventsRoutes = require("./routes/maintenanceEvents");
+const savedProfessionalsRoutes = require("./routes/savedProfessionals");
+const supportTicketsRoutes = require("./routes/supportTickets");
 
 const app = express();
 
@@ -43,10 +48,10 @@ const corsOptions = {
   origin: process.env.CORS_ORIGINS
     ? process.env.CORS_ORIGINS.split(',')
     : [
-        'http://localhost:5173',
-        'http://localhost:5174',
-        'https://homeops-frontend2-production.up.railway.app'
-      ],
+      'http://localhost:5173',
+      'http://localhost:5174',
+      'https://homeops-frontend2-production.up.railway.app'
+    ],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true,
@@ -56,6 +61,7 @@ app.use(cors(corsOptions));
 
 app.use(compression());
 app.use(express.json());
+app.use(cookieParser());
 
 app.get('/', (req, res) => {
   res.json({
@@ -79,7 +85,16 @@ const authLimiter = rateLimit({
   message: { error: { message: "Too many requests, please try again later.", status: 429 } },
 });
 
+const mfaLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: { message: "Too many MFA attempts, please try again later.", status: 429 } },
+});
+
 app.use("/auth", authLimiter, authRoutes);
+app.use("/mfa", mfaLimiter, ensureLoggedIn, mfaRoutes);
 app.use("/users", usersRoutes);
 app.use("/accounts", accountsRoutes);
 app.use("/contacts", contactsRoutes);
@@ -96,6 +111,9 @@ app.use("/analytics", platformAnalyticsRoutes);
 app.use("/predict", propertyPredictRoutes);
 app.use("/professional-categories", professionalCategoriesRoutes);
 app.use("/professionals", professionalsRoutes);
+app.use("/maintenance-events", maintenanceEventsRoutes);
+app.use("/saved-professionals", savedProfessionalsRoutes);
+app.use("/support-tickets", supportTicketsRoutes);
 
 app.use(function (req, res, next) {
   throw new NotFoundError();

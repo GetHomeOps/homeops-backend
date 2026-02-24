@@ -13,6 +13,7 @@ const Backend = require('i18next-fs-backend');
 const path = require('path');
 require('dotenv').config();
 
+const { validateGoogleOAuthConfig } = require('./config');
 const User = require('./models/user');
 const Account = require('./models/account');
 const SubscriptionProduct = require('./models/subscriptionProduct');
@@ -58,6 +59,10 @@ const PORT = process.env.PORT || 3000;
 
 async function startServer() {
   try {
+    // Validate Google OAuth only when configured (GOOGLE_CLIENT_ID set)
+    if (process.env.GOOGLE_CLIENT_ID) {
+      validateGoogleOAuthConfig();
+    }
     const user = await User.initializeSuperAdmin();
     console.log("Super Admin user:", user);
 

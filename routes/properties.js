@@ -2,7 +2,7 @@
 
 const express = require("express");
 const jsonschema = require("jsonschema");
-const { ensureLoggedIn, ensureSuperAdmin, ensurePlatformAdmin, ensurePropertyAccess } = require("../middleware/auth");
+const { ensureLoggedIn, ensureSuperAdmin, ensurePlatformAdmin, ensurePropertyAccess, ensureUserCanAccessAccountFromBody } = require("../middleware/auth");
 const { BadRequestError, ForbiddenError } = require("../expressError");
 const Property = require("../models/property");
 const propertyNewSchema = require("../schemas/propertyNew.json");
@@ -14,7 +14,7 @@ const { canCreateProperty } = require("../services/tierService");
 const router = new express.Router();
 
 /** POST / - Create property, add creator as owner. Enforces tier limit. */
-router.post("/", ensureLoggedIn, async function (req, res, next) {
+router.post("/", ensureLoggedIn, ensureUserCanAccessAccountFromBody(), async function (req, res, next) {
   try {
     const validator = jsonschema.validate(req.body, propertyNewSchema);
     if (!validator.valid) {

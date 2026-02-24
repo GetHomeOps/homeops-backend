@@ -21,6 +21,7 @@ async function enrichProfessional(pro) {
 router.get("/", ensureLoggedIn, async function (req, res, next) {
   try {
     const filters = {};
+    if (res.locals.user?.id) filters.user_id = res.locals.user.id;
     if (req.query.category_id) filters.category_id = req.query.category_id;
     if (req.query.city) filters.city = req.query.city;
     if (req.query.state) filters.state = req.query.state;
@@ -40,7 +41,8 @@ router.get("/", ensureLoggedIn, async function (req, res, next) {
 /** GET /:id - Get single professional with photos. */
 router.get("/:id", ensureLoggedIn, async function (req, res, next) {
   try {
-    const pro = await Professional.get(req.params.id);
+    const userId = res.locals.user?.id;
+    const pro = await Professional.get(req.params.id, userId);
     const enriched = await enrichProfessional(pro);
     return res.json({ professional: enriched });
   } catch (err) {
