@@ -32,9 +32,26 @@ class ProfessionalCategory {
     const parents = all.filter((c) => c.type === "parent");
     const children = all.filter((c) => c.type === "child");
 
+    const countsResult = await db.query(
+      `SELECT category_id AS id, COUNT(*)::int AS cnt FROM professionals
+       WHERE is_active = true AND category_id IS NOT NULL
+       GROUP BY category_id
+       UNION ALL
+       SELECT subcategory_id AS id, COUNT(*)::int AS cnt FROM professionals
+       WHERE is_active = true AND subcategory_id IS NOT NULL
+       GROUP BY subcategory_id`
+    );
+    const counts = {};
+    for (const row of countsResult.rows) {
+      counts[row.id] = (counts[row.id] || 0) + row.cnt;
+    }
+
     return parents.map((p) => ({
       ...p,
-      children: children.filter((c) => c.parent_id === p.id),
+      professional_count: counts[p.id] || 0,
+      children: children
+        .filter((c) => c.parent_id === p.id)
+        .map((c) => ({ ...c, professional_count: counts[c.id] || 0 })),
     }));
   }
 

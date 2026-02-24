@@ -54,6 +54,19 @@ class Professional {
       values.push(filters.category_id);
       idx++;
     }
+    if (filters.subcategory_id) {
+      conditions.push(`p.subcategory_id = $${idx}`);
+      values.push(filters.subcategory_id);
+      idx++;
+    }
+    if (filters.search) {
+      conditions.push(`(
+        p.first_name ILIKE $${idx} OR p.last_name ILIKE $${idx} OR
+        p.company_name ILIKE $${idx} OR pc.name ILIKE $${idx} OR sc.name ILIKE $${idx}
+      )`);
+      values.push(`%${filters.search}%`);
+      idx++;
+    }
     if (filters.city) {
       conditions.push(`p.city ILIKE $${idx}`);
       values.push(`%${filters.city}%`);

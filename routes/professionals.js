@@ -23,12 +23,14 @@ router.get("/", ensureLoggedIn, async function (req, res, next) {
     const filters = {};
     if (res.locals.user?.id) filters.user_id = res.locals.user.id;
     if (req.query.category_id) filters.category_id = req.query.category_id;
+    if (req.query.subcategory_id) filters.subcategory_id = req.query.subcategory_id;
     if (req.query.city) filters.city = req.query.city;
     if (req.query.state) filters.state = req.query.state;
     if (req.query.budget_level) filters.budget_level = req.query.budget_level;
     if (req.query.min_rating) filters.min_rating = Number(req.query.min_rating);
     if (req.query.language) filters.language = req.query.language;
     if (req.query.is_verified === "true") filters.is_verified = true;
+    if (req.query.search) filters.search = req.query.search.trim();
 
     const professionals = await Professional.getAll(filters);
     const enriched = await addPresignedUrlsToItems(professionals, "profile_photo", "profile_photo_url");
