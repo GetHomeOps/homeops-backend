@@ -166,6 +166,12 @@ class MaintenanceEvent {
       inspections: "Inspections",
     };
 
+    const toDateKey = (d) => {
+      if (d == null) return "";
+      const date = d instanceof Date ? d : new Date(d);
+      return date.toISOString().slice(0, 10);
+    };
+
     const maintenanceEvents = eventsResult.rows.map((r) => ({
       type: "maintenance",
       id: r.id,
@@ -180,19 +186,25 @@ class MaintenanceEvent {
       status: r.status,
     }));
 
-    const inspectionEvents = systemsResult.rows.map((r) => ({
-      type: "inspection",
-      id: `system-${r.property_id}-${r.system_key}`,
-      propertyId: r.property_id,
-      propertyUid: r.property_uid,
-      propertyName: r.property_name,
-      address: [r.address, r.city, r.state].filter(Boolean).join(", "),
-      systemKey: r.system_key,
-      systemName: SYSTEM_LABELS[r.system_key] || r.system_key,
-      scheduledDate: r.next_service_date,
-      scheduledTime: null,
-      status: "due",
-    }));
+    const maintenanceKeys = new Set(
+      maintenanceEvents.map((e) => `${e.propertyId}-${e.systemKey}-${toDateKey(e.scheduledDate)}`),
+    );
+
+    const inspectionEvents = systemsResult.rows
+      .filter((r) => !maintenanceKeys.has(`${r.property_id}-${r.system_key}-${toDateKey(r.next_service_date)}`))
+      .map((r) => ({
+        type: "inspection",
+        id: `system-${r.property_id}-${r.system_key}`,
+        propertyId: r.property_id,
+        propertyUid: r.property_uid,
+        propertyName: r.property_name,
+        address: [r.address, r.city, r.state].filter(Boolean).join(", "),
+        systemKey: r.system_key,
+        systemName: SYSTEM_LABELS[r.system_key] || r.system_key,
+        scheduledDate: r.next_service_date,
+        scheduledTime: null,
+        status: "due",
+      }));
 
     const combined = [...maintenanceEvents, ...inspectionEvents].sort(
       (a, b) => new Date(a.scheduledDate) - new Date(b.scheduledDate),
@@ -249,6 +261,12 @@ class MaintenanceEvent {
       inspections: "Inspections",
     };
 
+    const toDateKey = (d) => {
+      if (d == null) return "";
+      const date = d instanceof Date ? d : new Date(d);
+      return date.toISOString().slice(0, 10);
+    };
+
     const maintenanceEvents = eventsResult.rows.map((r) => ({
       type: "maintenance",
       id: r.id,
@@ -266,22 +284,28 @@ class MaintenanceEvent {
       recurrenceType: r.recurrence_type,
     }));
 
-    const inspectionEvents = systemsResult.rows.map((r) => ({
-      type: "inspection",
-      id: `system-${r.property_id}-${r.system_key}`,
-      propertyId: r.property_id,
-      propertyUid: r.property_uid,
-      propertyName: r.property_name,
-      address: [r.address, r.city, r.state].filter(Boolean).join(", "),
-      systemKey: r.system_key,
-      systemName: SYSTEM_LABELS[r.system_key] || r.system_key,
-      contractorName: null,
-      notes: null,
-      scheduledDate: r.next_service_date,
-      scheduledTime: null,
-      status: "due",
-      recurrenceType: null,
-    }));
+    const maintenanceKeys = new Set(
+      maintenanceEvents.map((e) => `${e.propertyId}-${e.systemKey}-${toDateKey(e.scheduledDate)}`),
+    );
+
+    const inspectionEvents = systemsResult.rows
+      .filter((r) => !maintenanceKeys.has(`${r.property_id}-${r.system_key}-${toDateKey(r.next_service_date)}`))
+      .map((r) => ({
+        type: "inspection",
+        id: `system-${r.property_id}-${r.system_key}`,
+        propertyId: r.property_id,
+        propertyUid: r.property_uid,
+        propertyName: r.property_name,
+        address: [r.address, r.city, r.state].filter(Boolean).join(", "),
+        systemKey: r.system_key,
+        systemName: SYSTEM_LABELS[r.system_key] || r.system_key,
+        contractorName: null,
+        notes: null,
+        scheduledDate: r.next_service_date,
+        scheduledTime: null,
+        status: "due",
+        recurrenceType: null,
+      }));
 
     return [...maintenanceEvents, ...inspectionEvents].sort(
       (a, b) => new Date(a.scheduledDate) - new Date(b.scheduledDate),

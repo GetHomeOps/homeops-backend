@@ -2,13 +2,38 @@
 
 const express = require("express");
 const jsonschema = require("jsonschema");
+const db = require("../db");
 const { ensureLoggedIn, ensurePropertyAccess } = require("../middleware/auth");
-const { BadRequestError } = require("../expressError");
+const { BadRequestError, ForbiddenError } = require("../expressError");
 const MaintenanceEvent = require("../models/maintenanceEvent");
 const maintenanceEventNewSchema = require("../schemas/maintenanceEventNew.json");
 const maintenanceEventUpdateSchema = require("../schemas/maintenanceEventUpdate.json");
 
 const router = express.Router();
+
+/** Resolve property_uid to numeric id so maintenance_events.property_id (integer) works. */
+async function resolvePropertyIdForCreate(req, res, next) {
+  try {
+    const raw = req.params.propertyId;
+    if (!raw) return next();
+    if (/^\d+$/.test(String(raw))) {
+      req.params.propertyId = parseInt(raw, 10);
+      return next();
+    }
+    if (/^[0-9A-Z]{26}$/i.test(raw)) {
+      const propRes = await db.query(
+        `SELECT id FROM properties WHERE property_uid = $1`,
+        [raw],
+      );
+      if (propRes.rows.length === 0) throw new ForbiddenError("Property not found.");
+      req.params.propertyId = propRes.rows[0].id;
+      return next();
+    }
+    return next();
+  } catch (err) {
+    return next(err);
+  }
+}
 
 /** GET /calendar - List maintenance & inspection events for current user in date range. */
 router.get(
@@ -60,6 +85,7 @@ async function loadPropertyIdFromEvent(req, res, next) {
 router.post(
   "/:propertyId",
   ensureLoggedIn,
+  resolvePropertyIdForCreate,
   ensurePropertyAccess({ param: "propertyId" }),
   async function (req, res, next) {
     try {
@@ -84,6 +110,7 @@ router.post(
 router.get(
   "/:propertyId",
   ensureLoggedIn,
+  resolvePropertyIdForCreate,
   ensurePropertyAccess({ param: "propertyId" }),
   async function (req, res, next) {
     try {
