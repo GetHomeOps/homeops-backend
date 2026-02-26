@@ -70,6 +70,9 @@ router.post("/", ensureLoggedIn, ensureUserCanAccessAccountFromBody(), async fun
     }
 
     const propertyWithUrl = await addPresignedUrlToItem(property, "main_photo", "main_photo_url");
+    if (creatorId && res.locals.user?.name) {
+      propertyWithUrl.owner_user_name = res.locals.user.name;
+    }
     return res.status(201).json({ property: propertyWithUrl });
   } catch (err) {
     return next(err);

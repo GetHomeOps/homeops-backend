@@ -158,6 +158,10 @@ router.post("/:id/send", ensureLoggedIn, ensureAdminOrSuperAdmin, async function
     }
     const userId = res.locals.user.id;
     const role = res.locals.user.role;
+    const agentRestrictedModes = ["all_users", "all_agents", "specific_users"];
+    if (role === "agent" && agentRestrictedModes.includes(resource.recipientMode)) {
+      return res.status(403).json({ error: { message: "Agents can only send to contacts and homeowners, not all users." } });
+    }
     const { count, emails, users } = await resolveRecipients(
       userId,
       role,

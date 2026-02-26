@@ -69,7 +69,13 @@ class Property {
   /* Get all properties */
   static async getAll() {
     const result = await db.query(
-      `SELECT * FROM properties`
+      `SELECT p.*,
+        (SELECT u.name FROM property_users pu
+         JOIN users u ON u.id = pu.user_id
+         WHERE pu.property_id = p.id
+         ORDER BY CASE WHEN pu.role = 'owner' THEN 0 ELSE 1 END, pu.created_at
+         LIMIT 1) AS owner_user_name
+       FROM properties p`
     );
     return result.rows;
   }
@@ -143,7 +149,13 @@ class Property {
   /* Get properties by account id */
   static async getPropertiesByAccountId(accountId) {
     const result = await db.query(
-      `SELECT p.* FROM properties p WHERE p.account_id = $1`,
+      `SELECT p.*,
+        (SELECT u.name FROM property_users pu
+         JOIN users u ON u.id = pu.user_id
+         WHERE pu.property_id = p.id
+         ORDER BY CASE WHEN pu.role = 'owner' THEN 0 ELSE 1 END, pu.created_at
+         LIMIT 1) AS owner_user_name
+       FROM properties p WHERE p.account_id = $1`,
       [accountId]
     );
     return result.rows;
@@ -152,7 +164,13 @@ class Property {
   /* Get properties by users's id */
   static async getPropertiesByUserId(userId) {
     const result = await db.query(
-      `SELECT p.* FROM properties p
+      `SELECT p.*,
+        (SELECT u.name FROM property_users pu_owner
+         JOIN users u ON u.id = pu_owner.user_id
+         WHERE pu_owner.property_id = p.id
+         ORDER BY CASE WHEN pu_owner.role = 'owner' THEN 0 ELSE 1 END, pu_owner.created_at
+         LIMIT 1) AS owner_user_name
+       FROM properties p
        JOIN property_users pu ON p.id = pu.property_id
        WHERE pu.user_id = $1`,
       [userId]
