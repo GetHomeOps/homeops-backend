@@ -565,3 +565,63 @@ CREATE INDEX idx_support_tickets_created_by ON support_tickets(created_by);
 CREATE INDEX idx_support_tickets_account_id ON support_tickets(account_id);
 CREATE INDEX idx_support_tickets_status ON support_tickets(status);
 CREATE INDEX idx_support_tickets_priority ON support_tickets(priority_score DESC, created_at ASC);
+
+-- Support ticket replies (admin/user exchange on tickets)
+CREATE TABLE support_ticket_replies (
+    id SERIAL PRIMARY KEY,
+    ticket_id INTEGER NOT NULL REFERENCES support_tickets(id) ON DELETE CASCADE,
+    author_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    role VARCHAR(20) NOT NULL CHECK (role IN ('admin', 'user')),
+    body TEXT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX idx_support_ticket_replies_ticket_id ON support_ticket_replies(ticket_id);
+CREATE INDEX idx_support_ticket_replies_created_at ON support_ticket_replies(created_at);
+
+-- ============================================================
+-- Resources (broadcast/messaging: draft + send to recipients)
+-- ============================================================
+
+CREATE TABLE resources (
+    id SERIAL PRIMARY KEY,
+    subject VARCHAR(500) NOT NULL DEFAULT '',
+    type VARCHAR(50) DEFAULT 'post',
+    recipient_mode VARCHAR(50),
+    recipient_ids JSONB DEFAULT '[]',
+    content_format VARCHAR(20) DEFAULT 'text',
+    body_text TEXT,
+    url TEXT,
+    image_key VARCHAR(512),
+    pdf_key VARCHAR(512),
+    delivery_channel VARCHAR(20) DEFAULT 'both' CHECK (delivery_channel IN ('email', 'in_app', 'both')),
+    auto_send_triggers JSONB DEFAULT '[]',
+    auto_send_enabled BOOLEAN DEFAULT false,
+    status VARCHAR(20) DEFAULT 'draft',
+    created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    sent_at TIMESTAMPTZ,
+    recipient_count INTEGER,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_resources_status ON resources(status);
+CREATE INDEX idx_resources_sent_at ON resources(sent_at DESC);
+
+-- ============================================================
+-- Notifications (when resources are sent, recipients get notified)
+-- Homeowners and agents see these in the bell dropdown and home page
+-- ============================================================
+
+CREATE TABLE notifications (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    type VARCHAR(50) NOT NULL DEFAULT 'resource_sent',
+    resource_id INTEGER REFERENCES resources(id) ON DELETE CASCADE,
+    title VARCHAR(500),
+    read_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_notifications_user_id ON notifications(user_id);
+CREATE INDEX idx_notifications_created_at ON notifications(created_at DESC);
+CREATE INDEX idx_notifications_read_at ON notifications(read_at) WHERE read_at IS NULL;

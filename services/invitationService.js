@@ -23,6 +23,7 @@ const { BadRequestError } = require("../expressError");
 const { BCRYPT_WORK_FACTOR } = require("../config");
 const Subscription = require("../models/subscription");
 const SubscriptionProduct = require("../models/subscriptionProduct");
+const { onUserCreated } = require("./resourceAutoSend");
 
 async function createPropertyInvitation({ inviterUserId, inviteeEmail, accountId, propertyId, intendedRole }) {
   const { token, tokenHash } = generateInvitationToken();
@@ -161,6 +162,12 @@ async function acceptInvitation({ rawToken, password, name }) {
       });
       await Contact.addToAccount({ contactId: contact.id, accountId: newAccount.id });
       await User.update({ id: user.id, contact: contact.id });
+
+      try {
+        await onUserCreated({ userId: user.id, role: user.role || "homeowner" });
+      } catch (autoErr) {
+        console.error("[resourceAutoSend] acceptInvitation new user:", autoErr.message);
+      }
     }
 
     const accepted = await Invitation.accept(invitation.id, user.id);

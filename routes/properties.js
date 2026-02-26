@@ -10,6 +10,8 @@ const propertyUpdateSchema = require("../schemas/propertyUpdate.json");
 const { generatePassportId } = require("../helpers/properties");
 const { addPresignedUrlToItem, addPresignedUrlsToItems } = require("../helpers/presignedUrls");
 const { canCreateProperty } = require("../services/tierService");
+const { onPropertyCreated } = require("../services/resourceAutoSend");
+const db = require("../db");
 
 const router = new express.Router();
 
@@ -26,6 +28,7 @@ router.post("/", ensureLoggedIn, ensureUserCanAccessAccountFromBody(), async fun
     if (!accountId) throw new BadRequestError("account_id is required");
 
     const userRole = res.locals.user?.role;
+    const creatorRole = userRole === "homeowner" ? "homeowner" : "agent";
     if (userRole !== 'super_admin' && userRole !== 'admin') {
       const tierCheck = await canCreateProperty(accountId);
       if (!tierCheck.allowed) {
@@ -43,6 +46,27 @@ router.post("/", ensureLoggedIn, ensureUserCanAccessAccountFromBody(), async fun
         user_id: creatorId,
         role: 'owner',
       });
+    }
+
+    let isFirstPropertyForUser = false;
+    if (creatorId) {
+      const countResult = await db.query(
+        `SELECT COUNT(*)::int AS count FROM property_users WHERE user_id = $1`,
+        [creatorId]
+      );
+      isFirstPropertyForUser = (countResult.rows[0]?.count ?? 0) === 1;
+    }
+
+    try {
+      await onPropertyCreated({
+        propertyId: property.id,
+        accountId,
+        createdByUserId: creatorId,
+        creatorRole,
+        isFirstPropertyForUser,
+      });
+    } catch (autoErr) {
+      console.error("[resourceAutoSend] property created:", autoErr.message);
     }
 
     const propertyWithUrl = await addPresignedUrlToItem(property, "main_photo", "main_photo_url");

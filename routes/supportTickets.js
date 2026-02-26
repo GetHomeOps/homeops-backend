@@ -90,6 +90,33 @@ router.get("/:id", ensureLoggedIn, async function (req, res, next) {
   }
 });
 
+/** POST /:id/replies - Add a reply to a ticket. Admin adds as admin reply; user adds as user reply. */
+router.post("/:id/replies", ensureLoggedIn, async function (req, res, next) {
+  try {
+    const ticketId = Number(req.params.id);
+    const ticket = await SupportTicket.get(ticketId);
+    const userId = res.locals.user?.id;
+    const isAdmin = ["super_admin", "admin"].includes(res.locals.user?.role);
+
+    const { body } = req.body;
+    if (!body?.trim()) throw new BadRequestError("Reply body is required");
+
+    const role = isAdmin ? "admin" : "user";
+    if (role === "user" && ticket.createdBy !== userId) {
+      throw new ForbiddenError("You can only reply to your own tickets");
+    }
+
+    const updated = await SupportTicket.addReply(ticketId, {
+      authorId: userId,
+      role,
+      body: body.trim(),
+    });
+    return res.status(201).json({ ticket: updated });
+  } catch (err) {
+    return next(err);
+  }
+});
+
 /** PATCH /:id - Update ticket (status, assignedTo, internalNotes). Admin only for admin fields. */
 router.patch("/:id", ensureLoggedIn, async function (req, res, next) {
   try {

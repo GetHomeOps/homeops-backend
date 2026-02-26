@@ -97,7 +97,7 @@ async function create({ type, subject, description, createdBy, accountId, attach
   return ticket;
 }
 
-/** Get ticket by id with creator and account info. */
+/** Get ticket by id with creator, account info, and replies. */
 async function get(id) {
   const result = await db.query(
     `SELECT t.id, t.type, t.subject, t.description, t.status,
@@ -124,7 +124,50 @@ async function get(id) {
   );
   const ticket = result.rows[0];
   if (!ticket) throw new NotFoundError(`No ticket with id: ${id}`);
+
+  let replies = [];
+  try {
+    const repliesRes = await db.query(
+      `SELECT r.id, r.ticket_id AS "ticketId", r.author_id AS "authorId",
+              r.role, r.body, r.created_at AS "createdAt",
+              u.name AS "authorName", u.email AS "authorEmail"
+       FROM support_ticket_replies r
+       LEFT JOIN users u ON u.id = r.author_id
+       WHERE r.ticket_id = $1
+       ORDER BY r.created_at ASC`,
+      [id]
+    );
+    replies = repliesRes.rows || [];
+  } catch (err) {
+    if (err.code !== "42P01") throw err; // 42P01 = relation does not exist (migration not run)
+  }
+  ticket.replies = replies;
+  ticket.activity = buildActivityFromReplies(ticket, ticket.replies);
   return ticket;
+}
+
+/** Build activity items for timeline (replies only; frontend adds initial message). */
+function buildActivityFromReplies(ticket, replies) {
+  return (replies || []).map((r) => ({
+    type: "reply",
+    actor: r.authorName || r.authorEmail || (r.role === "admin" ? "Support" : "User"),
+    text: r.body,
+    timestamp: r.createdAt,
+    label: r.role === "admin" ? "Admin reply" : "User reply",
+  }));
+}
+
+/** Add a reply to a ticket. Admin adds as 'admin', user adds as 'user'. */
+async function addReply(ticketId, { authorId, role, body }) {
+  if (!body?.trim()) throw new BadRequestError("Reply body is required");
+  if (!["admin", "user"].includes(role)) throw new BadRequestError("role must be 'admin' or 'user'");
+
+  await db.query(
+    `INSERT INTO support_ticket_replies (ticket_id, author_id, role, body)
+     VALUES ($1, $2, $3, $4)`,
+    [ticketId, authorId, role, body.trim()]
+  );
+  return get(ticketId);
 }
 
 /** List tickets for the current user (their own submissions). */
@@ -215,6 +258,7 @@ module.exports = {
   listForUser,
   listForAdmin,
   update,
+  addReply,
   getPriorityFromTier,
   resolveSubscriptionTier,
 };

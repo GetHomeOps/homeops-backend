@@ -41,6 +41,8 @@ const professionalsRoutes = require("./routes/professionals");
 const maintenanceEventsRoutes = require("./routes/maintenanceEvents");
 const savedProfessionalsRoutes = require("./routes/savedProfessionals");
 const supportTicketsRoutes = require("./routes/supportTickets");
+const resourcesRoutes = require("./routes/resources");
+const notificationsRoutes = require("./routes/notifications");
 
 const app = express();
 
@@ -114,6 +116,8 @@ app.use("/professionals", professionalsRoutes);
 app.use("/maintenance-events", maintenanceEventsRoutes);
 app.use("/saved-professionals", savedProfessionalsRoutes);
 app.use("/support-tickets", supportTicketsRoutes);
+app.use("/resources", resourcesRoutes);
+app.use("/notifications", notificationsRoutes);
 
 app.use(function (req, res, next) {
   throw new NotFoundError();

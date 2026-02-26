@@ -8,6 +8,7 @@ const { BadRequestError, ForbiddenError } = require("../expressError");
 const MaintenanceEvent = require("../models/maintenanceEvent");
 const maintenanceEventNewSchema = require("../schemas/maintenanceEventNew.json");
 const maintenanceEventUpdateSchema = require("../schemas/maintenanceEventUpdate.json");
+const { onEventScheduled } = require("../services/resourceAutoSend");
 
 const router = express.Router();
 
@@ -71,6 +72,22 @@ router.get(
   },
 );
 
+/** GET /home-events - Unified events for homepage: reminders, scheduled work, next alert. */
+router.get(
+  "/home-events",
+  ensureLoggedIn,
+  async function (req, res, next) {
+    try {
+      const userId = res.locals.user?.id;
+      if (!userId) return res.status(401).json({ error: { message: "Unauthorized" } });
+      const data = await MaintenanceEvent.getUnifiedEventsForUser(userId);
+      return res.json(data);
+    } catch (err) {
+      return next(err);
+    }
+  },
+);
+
 async function loadPropertyIdFromEvent(req, res, next) {
   try {
     const event = await MaintenanceEvent.getById(req.params.id);
@@ -99,6 +116,18 @@ router.post(
         property_id: req.params.propertyId,
         created_by: res.locals.user.id,
       });
+      const creatorRole = res.locals.user?.role;
+      const roleForTrigger = creatorRole === "homeowner" ? "homeowner" : "agent";
+      try {
+        await onEventScheduled({
+          eventId: event.id,
+          propertyId: req.params.propertyId,
+          createdByUserId: res.locals.user.id,
+          creatorRole: roleForTrigger,
+        });
+      } catch (autoErr) {
+        console.error("[resourceAutoSend] event scheduled:", autoErr.message);
+      }
       return res.status(201).json({ event });
     } catch (err) {
       return next(err);

@@ -9,6 +9,7 @@ CREATE DATABASE posdb;
 \connect posdb;
 
 -- Drop tables in reverse dependency order
+DROP TABLE IF EXISTS support_ticket_replies CASCADE;
 DROP TABLE IF EXISTS support_tickets CASCADE;
 DROP TABLE IF EXISTS saved_professionals CASCADE;
 DROP TABLE IF EXISTS professional_photos CASCADE;
@@ -34,20 +35,10 @@ DROP TABLE IF EXISTS accounts CASCADE;
 DROP TABLE IF EXISTS mfa_backup_codes CASCADE;
 DROP TABLE IF EXISTS mfa_enrollment_temp CASCADE;
 DROP TABLE IF EXISTS users CASCADE;
-DROP TABLE IF EXISTS user_api_usage CASCADE;
 DROP TABLE IF EXISTS refresh_tokens CASCADE;
-
-
-
--- Drop old tables from previous schema (cleanup)
-DROP TABLE IF EXISTS agent_databases CASCADE;
-DROP TABLE IF EXISTS user_databases CASCADE;
-DROP TABLE IF EXISTS contacts_databases CASCADE;
-DROP TABLE IF EXISTS databases CASCADE;
-DROP TABLE IF EXISTS subscriptions CASCADE;
-DROP TABLE IF EXISTS user_invitations CASCADE;
-
-
+DROP TABLE IF EXISTS notifications CASCADE;
+DROP TABLE IF EXISTS resources CASCADE;
+DROP TABLE IF EXISTS user_api_usage CASCADE;
 
 -- Drop old views
 DROP VIEW IF EXISTS daily_platform_metrics CASCADE;
@@ -55,6 +46,7 @@ DROP VIEW IF EXISTS database_analytics CASCADE;
 DROP VIEW IF EXISTS daily_platform_metrics CASCADE;
 DROP VIEW IF EXISTS daily_metrics_snapshot CASCADE;
 DROP VIEW IF EXISTS account_analytics_snapshot CASCADE;
+DROP VIEW IF EXISTS notifications_view CASCADE;
 
 -- Drop existing types
 DROP TYPE IF EXISTS user_role CASCADE;
@@ -67,6 +59,7 @@ DROP TYPE IF EXISTS role CASCADE;
 DROP TYPE IF EXISTS db_role CASCADE;
 DROP TYPE IF EXISTS subscription_type CASCADE;
 DROP TYPE IF EXISTS subscription_status CASCADE;
+DROP TYPE IF EXISTS delivery_channel CASCADE;
 
 
 -- Import the new schema

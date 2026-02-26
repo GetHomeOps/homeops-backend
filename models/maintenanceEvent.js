@@ -213,6 +213,131 @@ class MaintenanceEvent {
     return combined.slice(0, 20);
   }
 
+  /** Get unified events for homepage: overdue + upcoming maintenance & inspections.
+   * Returns events with: id, propertyId, systemType, title, category, status,
+   * scheduledAt, dueAt, professionalId, professionalName, daysUntilDue, isOverdue.
+   * - Reminders: overdue + upcoming (inspection/due, not yet booked)
+   * - Scheduled work: maintenance events with status scheduled/confirmed
+   */
+  static async getUnifiedEventsForUser(userId) {
+    const today = new Date().toISOString().slice(0, 10);
+
+    const eventsResult = await db.query(
+      `SELECT me.id, me.property_id, me.system_key, me.system_name,
+              me.contractor_id, me.contractor_name, me.scheduled_date, me.scheduled_time, me.status,
+              p.property_uid, p.property_name, p.address, p.city, p.state
+       FROM maintenance_events me
+       JOIN properties p ON p.id = me.property_id
+       JOIN property_users pu ON pu.property_id = me.property_id
+       WHERE pu.user_id = $1
+       ORDER BY me.scheduled_date ASC, me.scheduled_time ASC NULLS LAST`,
+      [userId],
+    );
+
+    const systemsResult = await db.query(
+      `SELECT ps.id, ps.property_id, ps.system_key, ps.next_service_date,
+              p.property_uid, p.property_name, p.address, p.city, p.state
+       FROM property_systems ps
+       JOIN properties p ON p.id = ps.property_id
+       JOIN property_users pu ON pu.property_id = ps.property_id
+       WHERE pu.user_id = $1
+         AND ps.next_service_date IS NOT NULL
+       ORDER BY ps.next_service_date ASC`,
+      [userId],
+    );
+
+    const SYSTEM_LABELS = {
+      roof: "Roof",
+      gutters: "Gutters",
+      foundation: "Foundation",
+      exterior: "Exterior",
+      windows: "Windows",
+      heating: "Heating",
+      ac: "Air Conditioning",
+      waterHeating: "Water Heating",
+      electrical: "Electrical",
+      plumbing: "Plumbing",
+      safety: "Safety",
+      inspections: "Inspections",
+    };
+
+    const toDateKey = (d) => {
+      if (d == null) return "";
+      const date = d instanceof Date ? d : new Date(d);
+      return date.toISOString().slice(0, 10);
+    };
+
+    const maintenanceEvents = eventsResult.rows.map((r) => {
+      const dateKey = toDateKey(r.scheduled_date);
+      const dueAt = r.scheduled_date;
+      const daysUntilDue = Math.ceil((new Date(dueAt) - new Date()) / (1000 * 60 * 60 * 24));
+      const isOverdue = daysUntilDue < 0;
+      const status = r.status === "completed" ? "completed" : isOverdue ? "overdue" : "upcoming";
+      const systemName = r.system_name || SYSTEM_LABELS[r.system_key] || r.system_key;
+      return {
+        id: String(r.id),
+        propertyId: r.property_id,
+        propertyUid: r.property_uid,
+        systemType: "maintenance",
+        title: systemName + (r.contractor_name ? ` – ${r.contractor_name}` : ""),
+        category: "maintenance",
+        status,
+        scheduledAt: dateKey,
+        dueAt: dateKey,
+        professionalId: r.contractor_id,
+        professionalName: r.contractor_name,
+        daysUntilDue,
+        isOverdue,
+        isBooked: ["scheduled", "confirmed"].includes((r.status || "").toLowerCase()),
+      };
+    });
+
+    const maintenanceKeys = new Set(
+      eventsResult.rows.map((r) => `${r.property_id}-${r.system_key}-${toDateKey(r.scheduled_date)}`),
+    );
+
+    const inspectionEvents = systemsResult.rows
+      .filter((r) => !maintenanceKeys.has(`${r.property_id}-${r.system_key}-${toDateKey(r.next_service_date)}`))
+      .map((r) => {
+        const dateKey = toDateKey(r.next_service_date);
+        const daysUntilDue = Math.ceil((new Date(dateKey) - new Date()) / (1000 * 60 * 60 * 24));
+        const isOverdue = daysUntilDue < 0;
+        const systemName = SYSTEM_LABELS[r.system_key] || r.system_key;
+        return {
+          id: `system-${r.property_id}-${r.system_key}`,
+          propertyId: r.property_id,
+          propertyUid: r.property_uid,
+          systemType: "inspection",
+          title: `${systemName} inspection due`,
+          category: "inspection",
+          status: isOverdue ? "overdue" : "upcoming",
+          scheduledAt: dateKey,
+          dueAt: dateKey,
+          professionalId: null,
+          professionalName: null,
+          daysUntilDue,
+          isOverdue,
+          isBooked: false,
+        };
+      });
+
+    const all = [...maintenanceEvents, ...inspectionEvents].sort((a, b) => {
+      if (a.isOverdue !== b.isOverdue) return a.isOverdue ? -1 : 1;
+      return new Date(a.dueAt) - new Date(b.dueAt);
+    });
+
+    const reminders = all.filter((e) => !e.isBooked && e.status !== "completed");
+    const scheduledWork = all.filter((e) => e.isBooked);
+    const nextAlert = reminders[0] || scheduledWork[0];
+
+    return {
+      events: all,
+      reminders,
+      scheduledWork,
+      nextAlert: nextAlert || null,
+    };
+  }
+
   /** Get calendar events (maintenance + inspections) for a user in a date range.
    * Used by the Calendar page to display all scheduled events in a month.
    */

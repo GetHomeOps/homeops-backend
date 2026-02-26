@@ -38,6 +38,7 @@ const userAuthSchema = require("../schemas/userAuth.json");
 const userRegisterSchema = require("../schemas/userRegister.json");
 const { BadRequestError, UnauthorizedError } = require("../expressError");
 const { acceptInvitation } = require("../services/invitationService");
+const { onUserCreated } = require("../services/resourceAutoSend");
 const Account = require("../models/account");
 const Contact = require("../models/contact");
 const Subscription = require("../models/subscription");
@@ -150,6 +151,12 @@ router.post("/register", async function (req, res, next) {
     await User.update({ id: newUser.id, contact: contact.id });
 
     await db.query("COMMIT");
+
+    try {
+      await onUserCreated({ userId: newUser.id, role: "homeowner" });
+    } catch (autoErr) {
+      console.error("[resourceAutoSend] register:", autoErr.message);
+    }
 
     const tokens = await issueTokenPair(newUser);
     return res.status(201).json(tokens);
@@ -435,6 +442,11 @@ async function handleGoogleCallback(req, res, next, intent) {
         await User.update({ id: newUser.id, contact: contact.id });
         await db.query("COMMIT");
         user = await User.getById(newUser.id);
+        try {
+          await onUserCreated({ userId: user.id, role: user.role || null });
+        } catch (autoErr) {
+          console.error("[resourceAutoSend] Google signup:", autoErr.message);
+        }
       } catch (err) {
         await db.query("ROLLBACK");
         throw err;
@@ -493,7 +505,17 @@ router.post("/complete-onboarding", ensureLoggedIn, async function (req, res, ne
       throw new BadRequestError("Valid subscriptionTier is required");
     }
 
+    const existingUser = await User.getById(userId);
+    const hadNoRole = !existingUser?.role;
     const user = await User.completeOnboarding(userId, { role, subscriptionTier });
+
+    if (hadNoRole) {
+      try {
+        await onUserCreated({ userId, role });
+      } catch (autoErr) {
+        console.error("[resourceAutoSend] complete-onboarding:", autoErr.message);
+      }
+    }
 
     // Create default subscription based on tier (for account linking)
     const accountResult = await db.query(
