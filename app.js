@@ -43,6 +43,8 @@ const savedProfessionalsRoutes = require("./routes/savedProfessionals");
 const supportTicketsRoutes = require("./routes/supportTickets");
 const resourcesRoutes = require("./routes/resources");
 const notificationsRoutes = require("./routes/notifications");
+const inspectionAnalysisRoutes = require("./routes/inspectionAnalysis");
+const aiRoutes = require("./routes/ai");
 
 const app = express();
 
@@ -118,6 +120,8 @@ app.use("/saved-professionals", savedProfessionalsRoutes);
 app.use("/support-tickets", supportTicketsRoutes);
 app.use("/resources", resourcesRoutes);
 app.use("/notifications", notificationsRoutes);
+app.use("/inspection-analysis", inspectionAnalysisRoutes);
+app.use("/ai", aiRoutes);
 
 app.use(function (req, res, next) {
   throw new NotFoundError();

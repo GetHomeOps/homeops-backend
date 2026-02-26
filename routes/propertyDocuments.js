@@ -4,6 +4,7 @@ const express = require("express");
 const router = express.Router();
 const PropertyDocument = require("../models/propertyDocuments");
 const { ensureLoggedIn, ensurePropertyAccess } = require("../middleware/auth");
+const documentRagService = require("../services/documentRagService");
 
 /** Set req.params.propertyId from document id so ensurePropertyAccess can run. */
 async function loadPropertyIdFromDocument(req, res, next) {
@@ -28,6 +29,9 @@ router.post("/", ensureLoggedIn, ensurePropertyAccess({ fromBody: "property_id",
       document_type,
       system_key,
     });
+    documentRagService.ingestDocument(property_id, document.id).catch((err) =>
+      console.error("[documentRag] Ingest on upload failed:", err.message)
+    );
     return res.status(201).json({ document });
   } catch (err) {
     return next(err);

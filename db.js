@@ -20,8 +20,17 @@ async function connectDb() {
   const { log, error } = require("console");
   try {
     await db.connect();
+    try {
+      const pgvector = require("pgvector/pg");
+      await pgvector.registerTypes(db);
+    } catch (e) {
+      // pgvector optional; run migration 013 to enable RAG over documents
+      if (process.env.NODE_ENV !== "test") {
+        const { warn } = require("console");
+        warn("pgvector not available (run migration 013). Document RAG disabled.");
+      }
+    }
     log(`Connected to ${databaseUri}`);
-
   } catch (err) {
     error(`Couldn't connect to ${databaseUri}`, err.message);
     process.exit(1);

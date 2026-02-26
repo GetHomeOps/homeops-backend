@@ -100,4 +100,22 @@ async function getPresignedUrlForImage(key, expiresIn = PRESIGNED_EXPIRATION) {
   return getSignedUrl(s3Client, command, { expiresIn });
 }
 
-module.exports = { uploadFile, deleteFile, getPresignedUrl, getPresignedUrlForImage };
+/**
+ * Download a file from S3 as a Buffer.
+ * @param {string} key - S3 object key (path/filename)
+ * @returns {Promise<Buffer>} File content
+ */
+async function getFile(key) {
+  const command = new GetObjectCommand({
+    Bucket: AWS_S3_BUCKET,
+    Key: key,
+  });
+  const response = await s3Client.send(command);
+  const chunks = [];
+  for await (const chunk of response.Body) {
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks);
+}
+
+module.exports = { uploadFile, deleteFile, getPresignedUrl, getPresignedUrlForImage, getFile };
