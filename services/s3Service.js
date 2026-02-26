@@ -54,6 +54,22 @@ async function deleteFile(key) {
 }
 
 /**
+ * Infer image Content-Type from S3 key extension.
+ * Used for ResponseContentType override to fix ORB (Opaque Response Blocking).
+ */
+function inferImageContentType(key) {
+  const ext = (key || "").split(".").pop()?.toLowerCase();
+  const map = {
+    jpg: "image/jpeg",
+    jpeg: "image/jpeg",
+    png: "image/png",
+    webp: "image/webp",
+    gif: "image/gif",
+  };
+  return map[ext] || null;
+}
+
+/**
  * Generate a presigned GET URL for secure document preview.
  * @param {string} key - S3 object key (path/filename)
  * @param {number} [expiresIn=300] - URL expiration in seconds (default 5 min)
@@ -67,4 +83,21 @@ async function getPresignedUrl(key, expiresIn = PRESIGNED_EXPIRATION) {
   return getSignedUrl(s3Client, command, { expiresIn });
 }
 
-module.exports = { uploadFile, deleteFile, getPresignedUrl };
+/**
+ * Generate a presigned GET URL for inline image display.
+ * Sets ResponseContentType to the correct image MIME type to avoid ERR_BLOCKED_BY_ORB.
+ * @param {string} key - S3 object key (path/filename)
+ * @param {number} [expiresIn=300] - URL expiration in seconds (default 5 min)
+ * @returns {Promise<string>} Presigned URL with Content-Type override
+ */
+async function getPresignedUrlForImage(key, expiresIn = PRESIGNED_EXPIRATION) {
+  const contentType = inferImageContentType(key) || "image/jpeg";
+  const command = new GetObjectCommand({
+    Bucket: AWS_S3_BUCKET,
+    Key: key,
+    ResponseContentType: contentType,
+  });
+  return getSignedUrl(s3Client, command, { expiresIn });
+}
+
+module.exports = { uploadFile, deleteFile, getPresignedUrl, getPresignedUrlForImage };

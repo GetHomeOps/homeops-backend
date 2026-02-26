@@ -4,7 +4,7 @@ const express = require("express");
 const multer = require("multer");
 const { ensureLoggedIn } = require("../middleware/auth");
 const { BadRequestError } = require("../expressError");
-const { uploadFile, getPresignedUrl } = require("../services/s3Service");
+const { uploadFile, getPresignedUrl, getPresignedUrlForImage } = require("../services/s3Service");
 const { AWS_S3_BUCKET } = require("../config");
 const { ulid } = require("ulid");
 
@@ -88,6 +88,20 @@ router.get("/presigned-preview", ensureLoggedIn, async (req, res, next) => {
   try {
     const validKey = validateFileKey(req.query.key);
     const url = await getPresignedUrl(validKey);
+    return res.json({ url });
+  } catch (err) {
+    if (err.name === "NoSuchKey") {
+      return next(new BadRequestError("File not found"));
+    }
+    return next(err);
+  }
+});
+
+/** GET /inline-image-url?key= - Presigned URL for inline image display with correct Content-Type (fixes ORB). */
+router.get("/inline-image-url", ensureLoggedIn, async (req, res, next) => {
+  try {
+    const validKey = validateFileKey(req.query.key);
+    const url = await getPresignedUrlForImage(validKey);
     return res.json({ url });
   } catch (err) {
     if (err.name === "NoSuchKey") {
