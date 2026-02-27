@@ -29,9 +29,11 @@ router.post("/", ensureLoggedIn, ensurePropertyAccess({ fromBody: "property_id",
       document_type,
       system_key,
     });
-    documentRagService.ingestDocument(property_id, document.id).catch((err) =>
-      console.error("[documentRag] Ingest on upload failed:", err.message)
-    );
+    documentRagService.ingestDocument(property_id, document.id).catch((err) => {
+      if (!err?.message?.includes("pgvector not available")) {
+        console.error("[documentRag] Ingest on upload failed:", err.message);
+      }
+    });
     return res.status(201).json({ document });
   } catch (err) {
     return next(err);

@@ -155,9 +155,11 @@ async function searchChunks(propertyId, query, options = {}) {
   const embeddingSql = pgvector.toSql(queryEmbedding);
 
   let sql = `
-    SELECT content, system_key, document_type, document_key
-    FROM document_chunks
-    WHERE property_id = $1 AND embedding IS NOT NULL
+    SELECT c.content, c.system_key, c.document_type, c.document_key,
+           p.document_name, p.document_date
+    FROM document_chunks c
+    JOIN property_documents p ON p.id = c.document_id
+    WHERE c.property_id = $1 AND c.embedding IS NOT NULL
   `;
   const params = [propertyId];
   if (systemKey) {
@@ -179,7 +181,12 @@ async function getDocumentContext(propertyId, query, options = {}) {
   if (chunks.length === 0) return "";
 
   const parts = chunks.map((c, i) => {
-    const source = c.document_key ? ` (from ${c.document_key.split("/").pop()})` : "";
+    const name = c.document_name || c.document_key?.split("/").pop() || "document";
+    const meta = [name];
+    if (c.document_date) meta.push(c.document_date);
+    if (c.document_type) meta.push(c.document_type);
+    if (c.system_key) meta.push(c.system_key);
+    const source = ` (from ${meta.join(", ")})`;
     return `[Excerpt ${i + 1}${source}]\n${c.content}`;
   });
   return "Relevant document excerpts:\n" + parts.join("\n\n");

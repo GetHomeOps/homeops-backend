@@ -5,6 +5,8 @@ const jsonschema = require("jsonschema");
 const { ensureLoggedIn, ensurePropertyAccess } = require("../middleware/auth");
 const { BadRequestError } = require("../expressError");
 const System = require("../models/system");
+const InspectionAnalysisResult = require("../models/inspectionAnalysisResult");
+const { enrichSystemsWithAiCondition } = require("../helpers/aiConditionFromAnalysis");
 const systemNewSchema = require("../schemas/systemNew.json");
 const systemUpdateSchema = require("../schemas/systemUpdate.json");
 
@@ -25,11 +27,16 @@ router.post("/:propertyId", ensureLoggedIn, ensurePropertyAccess({ param: "prope
   }
 });
 
-/** GET /:propertyId - List systems for property. */
+/** GET /:propertyId - List systems for property. Enriches each system with aiCondition from inspection analysis. */
 router.get("/:propertyId", ensureLoggedIn, ensurePropertyAccess({ param: "propertyId" }), async function (req, res, next) {
   try {
-    const systems = await System.get(req.params.propertyId);
-    return res.json({ systems });
+    const propertyId = req.params.propertyId;
+    const [systems, analysis] = await Promise.all([
+      System.get(propertyId),
+      InspectionAnalysisResult.getByPropertyId(propertyId),
+    ]);
+    const enriched = enrichSystemsWithAiCondition(systems, analysis);
+    return res.json({ systems: enriched });
   } catch (err) {
     return next(err);
   }

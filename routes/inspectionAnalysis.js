@@ -52,6 +52,7 @@ router.get(
             maintenanceSuggestions: result.maintenance_suggestions,
             summary: result.summary,
             citations: result.citations,
+            createdAt: result.created_at,
           };
         }
       }

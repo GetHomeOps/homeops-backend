@@ -34,16 +34,16 @@ async function resolvePropertyId(req, res, next) {
   }
 }
 
-/** Build property context for chat (profile + inspection summary + maintenance history). */
+/** Build property context for chat (profile + inspection summary + maintenance history + documents). */
 async function getPropertyContext(propertyId) {
-  const [propRes, analysisRes, maintenanceRes] = await Promise.all([
+  const [propRes, analysisRes, maintenanceRes, recordsRes, docsRes] = await Promise.all([
     db.query(
       `SELECT property_name, address, city, state, zip, year_built
        FROM properties WHERE id = $1`,
       [propertyId]
     ),
     db.query(
-      `SELECT condition_rating, summary, systems_detected, needs_attention, maintenance_suggestions
+      `SELECT condition_rating, condition_rationale, summary, systems_detected, needs_attention, maintenance_suggestions
        FROM inspection_analysis_results r
        JOIN inspection_analysis_jobs j ON j.id = r.job_id
        WHERE r.property_id = $1 AND j.status = 'completed'
@@ -58,24 +58,77 @@ async function getPropertyContext(propertyId) {
        LIMIT 10`,
       [propertyId]
     ),
+    db.query(
+      `SELECT system_key, completed_at, next_service_date, data, status
+       FROM property_maintenance
+       WHERE property_id = $1
+       ORDER BY completed_at DESC NULLS LAST
+       LIMIT 15`,
+      [propertyId]
+    ),
+    db.query(
+      `SELECT document_name, document_date, document_type, system_key
+       FROM property_documents
+       WHERE property_id = $1
+       ORDER BY document_date DESC`,
+      [propertyId]
+    ),
   ]);
 
   const prop = propRes.rows[0] || {};
   const analysis = analysisRes.rows[0] || {};
   const maintenance = maintenanceRes.rows || [];
+  const records = recordsRes.rows || [];
+  const docs = docsRes.rows || [];
   const parts = [];
   parts.push(`Property: ${prop.property_name || "Unnamed"} at ${[prop.address, prop.city, prop.state].filter(Boolean).join(", ")}`);
   if (prop.year_built) parts.push(`Year built: ${prop.year_built}`);
   if (analysis.condition_rating) parts.push(`Condition (from inspection): ${analysis.condition_rating}`);
+  if (analysis.condition_rationale) parts.push(`Condition rationale: ${analysis.condition_rationale}`);
   if (analysis.summary) parts.push(`Inspection summary: ${analysis.summary}`);
   if (analysis.systems_detected?.length) {
-    parts.push(`Systems detected: ${analysis.systems_detected.map((s) => s.systemType).join(", ")}`);
+    parts.push(`Systems detected: ${analysis.systems_detected.map((s) => `${s.systemType}${s.evidence ? ` (${s.evidence})` : ""}`).join("; ")}`);
   }
   if (analysis.needs_attention?.length) {
-    parts.push(`Needs attention: ${analysis.needs_attention.map((n) => n.title).join("; ")}`);
+    const needsParts = analysis.needs_attention.map((n) => {
+      let s = `- ${n.title}`;
+      if (n.severity) s += ` [${n.severity}]`;
+      if (n.suggestedAction) s += ` — Action: ${n.suggestedAction}`;
+      if (n.evidence) s += ` — Evidence: "${n.evidence}"`;
+      return s;
+    });
+    parts.push(`Needs attention:\n${needsParts.join("\n")}`);
+  }
+  if (analysis.maintenance_suggestions?.length) {
+    const maintParts = analysis.maintenance_suggestions.map((m) => {
+      let s = `- ${m.task || m.systemType}`;
+      if (m.suggestedWhen) s += ` (${m.suggestedWhen})`;
+      if (m.priority) s += ` [${m.priority}]`;
+      if (m.rationale) s += ` — ${m.rationale}`;
+      return s;
+    });
+    parts.push(`Maintenance suggestions:\n${maintParts.join("\n")}`);
   }
   if (maintenance.length > 0) {
-    parts.push(`Recent maintenance: ${maintenance.map((m) => `${m.system_name || m.system_key} (${m.scheduled_date}, ${m.status})`).join("; ")}`);
+    parts.push(`Scheduled maintenance events: ${maintenance.map((m) => `${m.system_name || m.system_key} (${m.scheduled_date}, ${m.status})`).join("; ")}`);
+  }
+  if (records.length > 0) {
+    const recordParts = records.map((r) => {
+      let s = `${r.system_key}`;
+      if (r.completed_at) s += ` completed ${r.completed_at}`;
+      if (r.next_service_date) s += ` next due ${r.next_service_date}`;
+      if (r.status) s += ` [${r.status}]`;
+      if (r.data && typeof r.data === "object" && Object.keys(r.data).length) {
+        const details = r.data.description || r.data.notes || r.data.summary;
+        if (details) s += ` — ${details}`;
+      }
+      return s;
+    });
+    parts.push(`Completed maintenance records:\n${recordParts.join("\n")}`);
+  }
+  if (docs.length > 0) {
+    const docParts = docs.map((d) => `${d.document_name} (${d.document_date}, ${d.document_type}, ${d.system_key})`);
+    parts.push(`Documents on file: ${docParts.join("; ")}`);
   }
   return parts.join("\n");
 }
@@ -113,17 +166,20 @@ router.post(
 
       const [context, docContext] = await Promise.all([
         getPropertyContext(resolvedId),
-        documentRagService.getDocumentContext(resolvedId, message).catch(() => ""),
+        documentRagService.getDocumentContext(resolvedId, message, { limit: 12 }).catch(() => ""),
       ]);
 
       const contextParts = [`Property context:\n${context}`];
       if (docContext) contextParts.push(docContext);
 
       const openai = new OpenAI({ apiKey });
-      const systemPrompt = `You are a helpful property assistant. Use only the property context and documents provided. Do not invent facts. If the user asks about scheduling maintenance or inspections, suggest specific tasks and indicate you can help schedule them. Be concise.`;
+      const chatModel = process.env.AI_CHAT_MODEL || "gpt-4o-mini";
+      const systemPrompt = `You are a friendly, conversational property assistant. Use ONLY the property context and document excerpts provided. Cite specific details when relevant (e.g. "According to the inspection report...", "The maintenance suggestion states..."). Do not invent facts. If information is not in the context, say so.
+
+Be natural and helpful. Answer the user's question directly—don't steer every conversation toward scheduling. When it's contextually relevant (e.g. discussing maintenance that's due, inspection findings that need follow-up, or work that should be scheduled), you may naturally offer: "Would you like help scheduling that?" or "I can help you schedule that if you'd like." Do this sometimes, not on every message—only when it fits the conversation. If the user explicitly asks to schedule, book, or set up an appointment, offer to help. If they're just asking general questions, focus on answering. Be thorough but concise.`;
 
       const completion = await openai.chat.completions.create({
-        model: "gpt-4o-mini",
+        model: chatModel,
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: `${contextParts.join("\n\n")}\n\nUser question: ${message}` },
@@ -133,8 +189,12 @@ router.post(
 
       const assistantMessage = completion.choices[0]?.message?.content || "I couldn't generate a response.";
 
-      const lowerMsg = (assistantMessage + message).toLowerCase();
-      const hasScheduleIntent = lowerMsg.includes("schedule") || lowerMsg.includes("book") || lowerMsg.includes("maintenance") || lowerMsg.includes("inspection");
+      const lowerUserMsg = (message || "").toLowerCase();
+      const hasScheduleIntent =
+        /\b(schedule|book|set up|arrange)\b/.test(lowerUserMsg) &&
+        (/\b(maintenance|inspection|appointment|service|visit)\b/.test(lowerUserMsg) ||
+          /\b(schedule|book)\s+(a|an|the|my|this)\b/.test(lowerUserMsg) ||
+          /\b(want|would like|need|help me)\s+to\s+(schedule|book)\b/.test(lowerUserMsg));
 
       let uiDirectives = null;
       if (hasScheduleIntent) {
@@ -251,7 +311,7 @@ router.post(
   }
 );
 
-/** POST /actions/:actionDraftId/confirm-schedule - Create maintenance event from draft. Body: { scheduledFor, notes? }. */
+/** POST /actions/:actionDraftId/confirm-schedule - Create maintenance event from draft. Body: { scheduledFor, scheduledTime?, eventType?, notes? }. */
 router.post(
   "/actions/:actionDraftId/confirm-schedule",
   ensureLoggedIn,
@@ -259,7 +319,7 @@ router.post(
     try {
       const draftId = req.params.actionDraftId;
       const userId = res.locals.user.id;
-      const { scheduledFor, notes } = req.body || {};
+      const { scheduledFor, scheduledTime, eventType, notes } = req.body || {};
 
       if (!scheduledFor) throw new BadRequestError("scheduledFor (YYYY-MM-DD) is required");
 
@@ -277,7 +337,17 @@ router.post(
       const tasks = draft.tasks || [];
       const firstTask = tasks[0] || {};
       const systemKey = firstTask.systemType || "general";
-      const systemName = firstTask.task || systemKey;
+      const baseName = firstTask.task || systemKey;
+      const systemName =
+        eventType === "inspection"
+          ? baseName.toLowerCase().includes("inspection")
+            ? baseName
+            : `${baseName} inspection`
+          : eventType === "maintenance"
+            ? baseName.toLowerCase().includes("maintenance")
+              ? baseName
+              : `${baseName} maintenance`
+            : baseName;
 
       let contractorId = null;
       let contractorSource = null;
@@ -298,7 +368,7 @@ router.post(
         contractor_source: contractorSource,
         contractor_name: contractorName,
         scheduled_date: scheduledFor,
-        scheduled_time: null,
+        scheduled_time: scheduledTime || null,
         recurrence_type: "one-time",
         alert_timing: "3d",
         email_reminder: true,

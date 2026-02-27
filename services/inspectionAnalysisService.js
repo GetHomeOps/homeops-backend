@@ -77,7 +77,7 @@ CRITICAL RULES:
 - Extract ALL recommendations, maintenance items, and items needing attention. Do not omit items—include everything the report mentions.
 - Map systems to these canonical types only: roof, gutters, foundation, exterior, windows, heating, ac, waterHeating, electrical, plumbing, safety, inspections.
 - For suggestedSystemsToAdd: include EVERY system that was inspected and has findings—each inspected system should appear here so the user can add it to their property.
-- For needsAttention: include ALL defects, concerns, and recommendations from the report. Be thorough.
+- For needsAttention: include ALL defects, concerns, and recommendations from the report. Include systemType when the defect clearly relates to a specific system (e.g. roof, HVAC, plumbing). Be thorough.
 - For maintenanceSuggestions: include ALL maintenance tasks, service recommendations, and follow-up items.
 - If the report does not mention something, omit it. Use confidence 0.5-0.9 when the report clearly states something; use 0.3-0.5 when inferred.
 - For condition rating use exactly: excellent, good, fair, poor.
@@ -90,7 +90,7 @@ Output format (strict JSON):
 {
   "condition": { "rating": "good", "confidence": 0.74, "rationale": "brief explanation" },
   "systemsDetected": [{ "systemType": "HVAC", "confidence": 0.81, "evidence": "short excerpt" }],
-  "needsAttention": [{ "title": "...", "severity": "high", "priority": "urgent", "suggestedAction": "...", "evidence": "..." }],
+  "needsAttention": [{ "title": "...", "systemType": "Roof", "severity": "high", "priority": "urgent", "suggestedAction": "...", "evidence": "..." }],
   "suggestedSystemsToAdd": [{ "systemType": "Roof", "reason": "...", "confidence": 0.77 }],
   "maintenanceSuggestions": [{ "systemType": "HVAC", "task": "...", "suggestedWhen": "within 30 days", "priority": "high", "rationale": "...", "confidence": 0.76 }],
   "summary": "2-3 sentence summary of the report",
@@ -216,6 +216,7 @@ async function runAnalysis(jobId) {
 
   const needsAttention = (parsed.needsAttention || []).map((n) => ({
     title: n.title || "",
+    systemType: n.systemType ? normalizeSystemType(n.systemType) || n.systemType : null,
     severity: n.severity || "medium",
     evidence: n.evidence || null,
     suggestedAction: n.suggestedAction || "",
@@ -247,4 +248,4 @@ async function runAnalysis(jobId) {
   }
 }
 
-module.exports = { runAnalysis, CANONICAL_SYSTEMS };
+module.exports = { runAnalysis, CANONICAL_SYSTEMS, normalizeSystemType };
