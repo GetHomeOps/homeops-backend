@@ -3,6 +3,7 @@
 -- Refactored: databases → accounts, tier-based subscriptions,
 -- invitation system, usage tracking, role cleanup
 -- ============================================================
+-- Requires: pgvector extension for document_chunks (RAG). See docs/PGVECTOR_SETUP.md
 
 CREATE EXTENSION IF NOT EXISTS vector;
 
@@ -83,6 +84,23 @@ CREATE TABLE refresh_tokens (
 
 CREATE INDEX idx_refresh_tokens_user_id ON refresh_tokens(user_id);
 CREATE INDEX idx_refresh_tokens_expires_at ON refresh_tokens(expires_at);
+
+-- ============================================================
+-- API Usage (per-user AI token tracking for tier limits)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS user_api_usage (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  endpoint VARCHAR(255) NOT NULL,
+  model VARCHAR(100) NOT NULL,
+  prompt_tokens INTEGER NOT NULL DEFAULT 0,
+  completion_tokens INTEGER NOT NULL DEFAULT 0,
+  total_cost NUMERIC(10, 6) NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_api_usage_user_id ON user_api_usage(user_id);
+CREATE INDEX IF NOT EXISTS idx_api_usage_created_at ON user_api_usage(created_at);
+CREATE INDEX IF NOT EXISTS idx_api_usage_user_month ON user_api_usage(user_id, created_at);
 
 -- ============================================================
 -- MFA (TOTP + Backup Codes)
@@ -324,7 +342,7 @@ CREATE INDEX idx_invitations_account ON invitations(account_id, status);
 CREATE INDEX idx_invitations_property ON invitations(property_id, status);
 
 -- ============================================================
--- Subscription Products & Account Subscriptions
+-- Subscription Products & Account Subscriptions (incl. Stripe billing)
 -- ============================================================
 
 CREATE TABLE subscription_products (
@@ -341,6 +359,9 @@ CREATE TABLE subscription_products (
     max_viewers INTEGER NOT NULL DEFAULT 2,
     max_team_members INTEGER NOT NULL DEFAULT 5,
     is_active BOOLEAN DEFAULT true,
+    code VARCHAR(100) UNIQUE,
+    sort_order INTEGER DEFAULT 0,
+    trial_days INTEGER,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -351,6 +372,9 @@ CREATE TABLE account_subscriptions (
     subscription_product_id INTEGER NOT NULL
         REFERENCES subscription_products(id) ON DELETE RESTRICT,
     stripe_subscription_id VARCHAR(255),
+    stripe_customer_id VARCHAR(255),
+    stripe_price_id VARCHAR(255),
+    cancel_at_period_end BOOLEAN DEFAULT false,
     status VARCHAR(50) NOT NULL DEFAULT 'active',
     current_period_start TIMESTAMPTZ,
     current_period_end TIMESTAMPTZ,
@@ -360,6 +384,56 @@ CREATE TABLE account_subscriptions (
 
 CREATE INDEX idx_account_subs_account ON account_subscriptions(account_id);
 CREATE INDEX idx_account_subs_status ON account_subscriptions(status);
+CREATE UNIQUE INDEX idx_account_subs_stripe_sub_id ON account_subscriptions(stripe_subscription_id) WHERE stripe_subscription_id IS NOT NULL;
+
+-- Plan prices: monthly + annual Stripe Price IDs (one row per billing interval per plan)
+CREATE TABLE plan_prices (
+    id SERIAL PRIMARY KEY,
+    subscription_product_id INTEGER NOT NULL REFERENCES subscription_products(id) ON DELETE CASCADE,
+    stripe_price_id VARCHAR(255) NOT NULL UNIQUE,
+    billing_interval VARCHAR(20) NOT NULL CHECK (billing_interval IN ('month', 'year')),
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(subscription_product_id, billing_interval)
+);
+CREATE INDEX idx_plan_prices_product ON plan_prices(subscription_product_id);
+CREATE INDEX idx_plan_prices_stripe ON plan_prices(stripe_price_id);
+
+-- Plan limits: editable limits per plan (overrides inline subscription_products limits when present)
+CREATE TABLE plan_limits (
+    id SERIAL PRIMARY KEY,
+    subscription_product_id INTEGER NOT NULL REFERENCES subscription_products(id) ON DELETE CASCADE UNIQUE,
+    max_properties INTEGER NOT NULL DEFAULT 1,
+    max_contacts INTEGER NOT NULL DEFAULT 25,
+    max_viewers INTEGER NOT NULL DEFAULT 2,
+    max_team_members INTEGER NOT NULL DEFAULT 5,
+    ai_token_monthly_quota INTEGER DEFAULT 50000,
+    other_limits JSONB DEFAULT '{}',
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX idx_plan_limits_product ON plan_limits(subscription_product_id);
+
+-- Webhook idempotency: prevent duplicate processing
+CREATE TABLE stripe_webhook_events (
+    id SERIAL PRIMARY KEY,
+    stripe_event_id VARCHAR(255) NOT NULL UNIQUE,
+    processed_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX idx_stripe_webhook_events_id ON stripe_webhook_events(stripe_event_id);
+
+-- Usage counters: monthly aggregates for AI tokens and cached counts
+CREATE TABLE usage_counters (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    period_start DATE NOT NULL,
+    ai_tokens_used INTEGER NOT NULL DEFAULT 0,
+    contacts_count_cached INTEGER,
+    properties_count_cached INTEGER,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(user_id, account_id, period_start)
+);
+CREATE INDEX idx_usage_counters_user_period ON usage_counters(user_id, period_start);
+CREATE INDEX idx_usage_counters_account_period ON usage_counters(account_id, period_start);
 
 -- ============================================================
 -- Usage Tracking (Unit Economics)
@@ -637,6 +711,7 @@ CREATE TABLE notifications (
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     type VARCHAR(50) NOT NULL DEFAULT 'resource_sent',
     resource_id INTEGER REFERENCES resources(id) ON DELETE CASCADE,
+    invitation_id UUID REFERENCES invitations(id) ON DELETE SET NULL,
     title VARCHAR(500),
     read_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -708,6 +783,8 @@ CREATE TABLE ai_conversations (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     property_id INTEGER NOT NULL REFERENCES properties(id) ON DELETE CASCADE,
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    system_id VARCHAR(50),
+    system_context JSONB DEFAULT '{}',
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );

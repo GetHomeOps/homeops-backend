@@ -3,8 +3,9 @@
 const express = require("express");
 const jsonschema = require("jsonschema");
 const { ensureSuperAdmin, ensurePlatformAdmin, ensureLoggedIn, ensureUserCanAccessAccountByParam } = require("../middleware/auth");
-const { BadRequestError } = require("../expressError");
+const { BadRequestError, ForbiddenError } = require("../expressError");
 const Contact = require("../models/contact");
+const { canAddContact } = require("../services/tierService");
 const contactUpdateSchema = require("../schemas/contactUpdate.json");
 const { addPresignedUrlToItem, addPresignedUrlsToItems } = require("../helpers/presignedUrls");
 
@@ -52,6 +53,12 @@ router.post("/", ensureLoggedIn, async function (req, res, next) {
       throw new BadRequestError(errs);
     }
     const { accountId, ...contactData } = req.body;
+    if (accountId && res.locals.user?.role !== "super_admin" && res.locals.user?.role !== "admin") {
+      const tierCheck = await canAddContact(accountId);
+      if (!tierCheck.allowed) {
+        throw new ForbiddenError(`Contact limit reached (${tierCheck.current}/${tierCheck.max}). Upgrade your plan.`);
+      }
+    }
     const contact = await Contact.create(contactData);
     const contactWithUrl = await addPresignedUrlToItem(contact, "image", "image_url");
     let contactAccount = null;
@@ -69,6 +76,13 @@ router.post("/", ensureLoggedIn, async function (req, res, next) {
 /** POST /account_contacts - Link contact to account. Body: { contactId, accountId }. */
 router.post("/account_contacts", ensureLoggedIn, async function (req, res, next) {
   try {
+    const { accountId } = req.body || {};
+    if (accountId && res.locals.user?.role !== "super_admin" && res.locals.user?.role !== "admin") {
+      const tierCheck = await canAddContact(accountId);
+      if (!tierCheck.allowed) {
+        throw new ForbiddenError(`Contact limit reached (${tierCheck.current}/${tierCheck.max}). Upgrade your plan.`);
+      }
+    }
     const contactAccount = await Contact.addToAccount(req.body);
     return res.status(201).json({ contactAccount });
   } catch (err) {

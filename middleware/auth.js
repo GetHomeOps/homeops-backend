@@ -103,6 +103,16 @@ function ensurePropertyAccess(options = {}) {
       );
 
       if (result.rows.length > 0) return next();
+
+      // Allow access if user has a pending invitation to this property (invitee email matches)
+      const invResult = await db.query(
+        `SELECT 1 FROM invitations i
+         JOIN users u ON LOWER(u.email) = LOWER(i.invitee_email) AND u.id = $2
+         WHERE i.property_id = $1 AND i.status = 'pending' AND i.expires_at > NOW()`,
+        [propertyId, user.id],
+      );
+      if (invResult.rows.length > 0) return next();
+
       throw new ForbiddenError("You do not have access to this property.");
     } catch (err) {
       return next(err);

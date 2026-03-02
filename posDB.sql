@@ -10,6 +10,9 @@ CREATE DATABASE posdb;
 
 -- Drop tables in reverse dependency order
 DROP TABLE IF EXISTS support_ticket_replies CASCADE;
+DROP TABLE IF EXISTS plan_limits CASCADE;
+DROP TABLE IF EXISTS plan_prices CASCADE;
+DROP TABLE IF EXISTS stripe_webhook_events CASCADE;
 DROP TABLE IF EXISTS support_tickets CASCADE;
 DROP TABLE IF EXISTS ai_action_drafts CASCADE;
 DROP TABLE IF EXISTS ai_messages CASCADE;
@@ -22,6 +25,7 @@ DROP TABLE IF EXISTS professional_photos CASCADE;
 DROP TABLE IF EXISTS professionals CASCADE;
 DROP TABLE IF EXISTS professional_categories CASCADE;
 DROP TABLE IF EXISTS maintenance_events CASCADE;
+DROP TABLE IF EXISTS usage_counters CASCADE;
 DROP TABLE IF EXISTS account_usage_events CASCADE;
 DROP TABLE IF EXISTS account_analytics_snapshot CASCADE;
 DROP TABLE IF EXISTS daily_metrics_snapshot CASCADE;
@@ -43,7 +47,24 @@ DROP TABLE IF EXISTS mfa_backup_codes CASCADE;
 DROP TABLE IF EXISTS mfa_enrollment_temp CASCADE;
 DROP TABLE IF EXISTS users CASCADE;
 DROP TABLE IF EXISTS refresh_tokens CASCADE;
+DROP TABLE IF EXISTS resources CASCADE;
+DROP TABLE IF EXISTS user_api_usage CASCADE;
+DROP TABLE IF EXISTS invitations CASCADE;
 DROP TABLE IF EXISTS notifications CASCADE;
+DROP TABLE IF EXISTS document_chunks CASCADE;
+DROP TABLE IF EXISTS property_documents CASCADE;
+DROP TABLE IF EXISTS property_maintenance CASCADE;
+DROP TABLE IF EXISTS property_systems CASCADE;
+DROP TABLE IF EXISTS property_users CASCADE;
+DROP TABLE IF EXISTS properties CASCADE;
+DROP TABLE IF EXISTS account_contacts CASCADE;
+DROP TABLE IF EXISTS contacts CASCADE;
+DROP TABLE IF EXISTS account_users CASCADE;
+DROP TABLE IF EXISTS accounts CASCADE;
+DROP TABLE IF EXISTS mfa_backup_codes CASCADE;
+DROP TABLE IF EXISTS mfa_enrollment_temp CASCADE;
+DROP TABLE IF EXISTS users CASCADE;
+DROP TABLE IF EXISTS refresh_tokens CASCADE;
 DROP TABLE IF EXISTS resources CASCADE;
 DROP TABLE IF EXISTS user_api_usage CASCADE;
 
@@ -54,6 +75,7 @@ DROP VIEW IF EXISTS daily_platform_metrics CASCADE;
 DROP VIEW IF EXISTS daily_metrics_snapshot CASCADE;
 DROP VIEW IF EXISTS account_analytics_snapshot CASCADE;
 DROP VIEW IF EXISTS notifications_view CASCADE;
+
 
 -- Drop existing types
 DROP TYPE IF EXISTS user_role CASCADE;

@@ -80,7 +80,9 @@ CRITICAL RULES:
 - For needsAttention: include ALL defects, concerns, and recommendations from the report. Include systemType when the defect clearly relates to a specific system (e.g. roof, HVAC, plumbing). Be thorough.
 - For maintenanceSuggestions: include ALL maintenance tasks, service recommendations, and follow-up items.
 - If the report does not mention something, omit it. Use confidence 0.5-0.9 when the report clearly states something; use 0.3-0.5 when inferred.
-- For condition rating use exactly: excellent, good, fair, poor.
+- For condition rating use exactly: excellent, good, fair, poor. Use "unknown" only when there is truly insufficient information.
+- Overall condition: ALWAYS try to infer a condition from the report. If not explicitly stated, predict from findings, recommendations, severity of issues, age of systems, and overall report tone. Only use "unknown" when the report has almost no usable information. When you infer (rather than extract) a condition, include confidence; when condition is "unknown", omit confidence.
+- For systemsDetected: include condition when inferable from findings/recommendations for that system. When condition is specified, include confidence. When condition cannot be determined, use "unknown" and omit confidence.
 - For severity use: low, medium, high, critical.
 - For priority use: low, medium, high, urgent.
 - suggestedWhen: use phrases like "within 30 days", "within 6 months", "annually", "as soon as possible".
@@ -89,7 +91,7 @@ CRITICAL RULES:
 Output format (strict JSON):
 {
   "condition": { "rating": "good", "confidence": 0.74, "rationale": "brief explanation" },
-  "systemsDetected": [{ "systemType": "HVAC", "confidence": 0.81, "evidence": "short excerpt" }],
+  "systemsDetected": [{ "systemType": "HVAC", "condition": "good", "confidence": 0.81, "evidence": "short excerpt" }],
   "needsAttention": [{ "title": "...", "systemType": "Roof", "severity": "high", "priority": "urgent", "suggestedAction": "...", "evidence": "..." }],
   "suggestedSystemsToAdd": [{ "systemType": "Roof", "reason": "...", "confidence": 0.77 }],
   "maintenanceSuggestions": [{ "systemType": "HVAC", "task": "...", "suggestedWhen": "within 30 days", "priority": "high", "rationale": "...", "confidence": 0.76 }],
@@ -188,22 +190,42 @@ async function runAnalysis(jobId) {
   const conditionRating = (condition.rating || "unknown").toLowerCase();
   const validCondition = ["excellent", "good", "fair", "poor"].includes(conditionRating)
     ? conditionRating
-    : "good";
+    : "unknown";
 
-  const systemsDetected = (parsed.systemsDetected || []).map((s) => {
-    const normalized = normalizeSystemType(s.systemType) || s.systemType;
-    return {
-      systemType: normalized,
+  // Deduplicate by normalized systemType (AI may return same system multiple times, e.g. waterHeater twice)
+  const systemsDetectedSeen = new Set();
+  const systemsDetected = (parsed.systemsDetected || [])
+    .map((s) => {
+      const normalized = normalizeSystemType(s.systemType) || s.systemType;
+      const sysCondition = (s.condition || "unknown").toLowerCase();
+      const hasCondition = ["excellent", "good", "fair", "poor"].includes(sysCondition);
+      return {
+        systemType: normalized,
+        condition: hasCondition ? sysCondition : "unknown",
+        confidence: hasCondition ? (s.confidence ?? 0.5) : null,
+        evidence: s.evidence || null,
+      };
+    })
+    .filter((s) => {
+      const key = (s.systemType || "").toString().toLowerCase();
+      if (!key || systemsDetectedSeen.has(key)) return false;
+      systemsDetectedSeen.add(key);
+      return true;
+    });
+
+  const suggestedSystemsToAddSeen = new Set();
+  const suggestedSystemsToAdd = (parsed.suggestedSystemsToAdd || [])
+    .map((s) => ({
+      systemType: normalizeSystemType(s.systemType) || s.systemType,
+      reason: s.reason || "",
       confidence: s.confidence ?? 0.5,
-      evidence: s.evidence || null,
-    };
-  });
-
-  const suggestedSystemsToAdd = (parsed.suggestedSystemsToAdd || []).map((s) => ({
-    systemType: normalizeSystemType(s.systemType) || s.systemType,
-    reason: s.reason || "",
-    confidence: s.confidence ?? 0.5,
-  }));
+    }))
+    .filter((s) => {
+      const key = (s.systemType || "").toString().toLowerCase();
+      if (!key || suggestedSystemsToAddSeen.has(key)) return false;
+      suggestedSystemsToAddSeen.add(key);
+      return true;
+    });
 
   const maintenanceSuggestions = (parsed.maintenanceSuggestions || []).map((s) => ({
     systemType: normalizeSystemType(s.systemType) || s.systemType,
@@ -228,7 +250,7 @@ async function runAnalysis(jobId) {
       job_id: jobId,
       property_id: job.property_id,
       condition_rating: validCondition,
-      condition_confidence: condition.confidence ?? null,
+      condition_confidence: validCondition === "unknown" ? null : (condition.confidence ?? null),
       condition_rationale: condition.rationale ?? null,
       systems_detected: systemsDetected,
       needs_attention: needsAttention,

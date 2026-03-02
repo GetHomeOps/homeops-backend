@@ -16,6 +16,7 @@ const InspectionAnalysisResult = require("../models/inspectionAnalysisResult");
 const { enqueue } = require("../services/inspectionAnalysisQueue");
 const Contact = require("../models/contact");
 const SavedProfessional = require("../models/savedProfessional");
+const Invitation = require("../models/invitation");
 const db = require("../db");
 
 const router = new express.Router();
@@ -106,7 +107,7 @@ router.get("/user/:userId", ensureLoggedIn, ensurePropertyAccess({ scope: "user"
   }
 });
 
-/** GET /team/:uid - Get property team members. Requires property access. */
+/** GET /team/:uid - Get property team members (including pending invitations). Requires property access. */
 router.get("/team/:uid", ensureLoggedIn, ensurePropertyAccess(), async function (req, res, next) {
   try {
     const uid = req.params.uid;
@@ -116,7 +117,19 @@ router.get("/team/:uid", ensureLoggedIn, ensurePropertyAccess(), async function 
     const property = await Property.get(uid);
     const property_users = await Property.getPropertyTeam(property.id);
     const property_users_with_urls = await addPresignedUrlsToItems(property_users, "image", "image_url");
-    return res.json({ property_users: property_users_with_urls });
+
+    // Include pending invitations as team members with _pending flag
+    const pendingInvitations = await Invitation.getByProperty(property.id, { status: "pending" });
+    const pendingMembers = pendingInvitations.map((inv) => ({
+      email: inv.inviteeEmail,
+      name: inv.inviteeEmail,
+      role: inv.intendedRole,
+      property_role: inv.intendedRole,
+      _pending: true,
+    }));
+
+    const allMembers = [...property_users_with_urls, ...pendingMembers];
+    return res.json({ property_users: allMembers });
   } catch (err) {
     return next(err);
   }

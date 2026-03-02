@@ -1,0 +1,124 @@
+{
+  "version": "1.0",
+  "plans": [
+    {
+      "code": "homeowner_free",
+      "name": "Free",
+      "description": "Entry-level plan to drive adoption and habit formation. Basic system tracking, manual maintenance logging, basic document storage.",
+      "targetRole": "homeowner",
+      "price": 0,
+      "priceYear": 0,
+      "sortOrder": 1,
+      "trialDays": null,
+      "popular": false,
+      "limits": {
+        "maxProperties": 1,
+        "maxContacts": 25,
+        "maxViewers": 1,
+        "maxTeamMembers": 2,
+        "aiTokenMonthlyQuota": 0,
+        "otherLimits": {
+          "aiInsightsPerMonth": 2,
+          "storageGb": 1,
+          "contractorScheduling": false,
+          "automation": false
+        }
+      }
+    },
+    {
+      "code": "homeowner_maintain",
+      "name": "Maintain",
+      "description": "Core homeowner protection tier. Unlimited systems, maintenance reminders, AI inspection analysis, AI assistant (limited usage), contractor scheduling, maintenance alerts.",
+      "targetRole": "homeowner",
+      "price": 19,
+      "priceYear": 190,
+      "sortOrder": 2,
+      "trialDays": 14,
+      "popular": true,
+      "limits": {
+        "maxProperties": 1,
+        "maxContacts": 100,
+        "maxViewers": 5,
+        "maxTeamMembers": 10,
+        "aiTokenMonthlyQuota": 50000,
+        "otherLimits": { "storageGb": 5 }
+      }
+    },
+    {
+      "code": "homeowner_win",
+      "name": "Win",
+      "description": "For landlords and multi-property owners. Predictive maintenance scoring, advanced analytics, priority contractor matching, early access to new features, full AI assistant access.",
+      "targetRole": "homeowner",
+      "price": 49,
+      "priceYear": 490,
+      "sortOrder": 3,
+      "trialDays": 14,
+      "popular": false,
+      "limits": {
+        "maxProperties": 3,
+        "maxContacts": 500,
+        "maxViewers": 25,
+        "maxTeamMembers": 25,
+        "aiTokenMonthlyQuota": 999999,
+        "otherLimits": { "storageGb": 25 }
+      }
+    },
+    {
+      "code": "agent_basic",
+      "name": "Basic",
+      "description": "Stay organized. Maintenance tracking, branded communications, limited homeowner invites.",
+      "targetRole": "agent",
+      "price": 39,
+      "priceYear": null,
+      "sortOrder": 4,
+      "trialDays": 14,
+      "popular": false,
+      "limits": {
+        "maxProperties": 5,
+        "maxContacts": 100,
+        "maxViewers": 5,
+        "maxTeamMembers": 10,
+        "aiTokenMonthlyQuota": 25000,
+        "otherLimits": { "storageGb": 10 }
+      }
+    },
+    {
+      "code": "agent_pro",
+      "name": "Pro",
+      "description": "Scale smart. Unlimited homeowner invites, AI inspection summaries, reporting dashboard, communication campaigns, branded portal access.",
+      "targetRole": "agent",
+      "price": 99,
+      "priceYear": null,
+      "sortOrder": 5,
+      "trialDays": 14,
+      "popular": true,
+      "limits": {
+        "maxProperties": 25,
+        "maxContacts": 500,
+        "maxViewers": 25,
+        "maxTeamMembers": 25,
+        "aiTokenMonthlyQuota": 200000,
+        "otherLimits": { "storageGb": 50 }
+      }
+    },
+    {
+      "code": "agent_premium",
+      "name": "Premium",
+      "description": "Portfolio control. Advanced analytics, workflow automations, API access, white-label options, priority support.",
+      "targetRole": "agent",
+      "price": 249,
+      "priceYear": null,
+      "sortOrder": 6,
+      "trialDays": 14,
+      "popular": false,
+      "limits": {
+        "maxProperties": 999,
+        "maxContacts": 9999,
+        "maxViewers": 100,
+        "maxTeamMembers": 100,
+        "aiTokenMonthlyQuota": 999999,
+        "otherLimits": { "storageGb": 200 }
+      }
+    }
+  ]
+}

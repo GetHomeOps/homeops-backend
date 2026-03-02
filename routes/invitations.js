@@ -4,7 +4,7 @@ const express = require("express");
 const { ensureLoggedIn, ensurePropertyOwner } = require("../middleware/auth");
 const { BadRequestError, ForbiddenError } = require("../expressError");
 const Invitation = require("../models/invitation");
-const { createPropertyInvitation, createAccountInvitation, acceptInvitation } = require("../services/invitationService");
+const { createPropertyInvitation, createAccountInvitation, acceptInvitation, acceptInvitationForLoggedInUser } = require("../services/invitationService");
 const { canInviteViewer, canAddTeamMember } = require("../services/tierService");
 
 const router = express.Router();
@@ -47,12 +47,24 @@ router.post("/", ensureLoggedIn, async function (req, res, next) {
   }
 });
 
-/** POST /:id/accept - Accept invitation. Body: token, password, name. */
+/** POST /:id/accept - Accept invitation. Body: token, password, name. Token required for email flow. */
 router.post("/:id/accept", async function (req, res, next) {
   try {
     const { token, password, name } = req.body;
     if (!token) throw new BadRequestError("Invitation token is required");
     const result = await acceptInvitation({ rawToken: token, password, name });
+    return res.json({ success: true, message: "Invitation accepted", userId: result.user.id });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+/** POST /:id/accept-in-app - Accept invitation for logged-in user (no token). Invitee email must match current user. */
+router.post("/:id/accept-in-app", ensureLoggedIn, async function (req, res, next) {
+  try {
+    const invitationId = req.params.id?.trim?.() || req.params.id;
+    const currentUser = res.locals.user;
+    const result = await acceptInvitationForLoggedInUser(invitationId, currentUser.id, currentUser.email);
     return res.json({ success: true, message: "Invitation accepted", userId: result.user.id });
   } catch (err) {
     return next(err);
@@ -83,6 +95,23 @@ router.post("/:id/revoke", ensureLoggedIn, async function (req, res, next) {
 router.get("/sent", ensureLoggedIn, async function (req, res, next) {
   try {
     const invitations = await Invitation.getSentByUser(res.locals.user.id);
+    return res.json({ invitations });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+/** GET /received - List invitations received by current user (invitee_email matches). */
+router.get("/received", ensureLoggedIn, async function (req, res, next) {
+  try {
+    const { status } = req.query;
+    const userEmail = res.locals.user.email;
+    if (!userEmail) {
+      return res.json({ invitations: [] });
+    }
+    const invitations = await Invitation.getReceivedByEmail(userEmail, {
+      status: status || "pending",
+    });
     return res.json({ invitations });
   } catch (err) {
     return next(err);

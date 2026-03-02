@@ -45,6 +45,8 @@ const resourcesRoutes = require("./routes/resources");
 const notificationsRoutes = require("./routes/notifications");
 const inspectionAnalysisRoutes = require("./routes/inspectionAnalysis");
 const aiRoutes = require("./routes/ai");
+const webhookRoutes = require("./routes/webhooks");
+const billingRoutes = require("./routes/billing");
 
 const app = express();
 
@@ -64,8 +66,12 @@ const corsOptions = {
 app.use(cors(corsOptions));
 
 app.use(compression());
-app.use(express.json());
 app.use(cookieParser());
+
+// Webhooks MUST use raw body for Stripe signature verification - mount before express.json
+app.use("/webhooks", express.raw({ type: "application/json" }), webhookRoutes);
+
+app.use(express.json());
 
 app.get('/', (req, res) => {
   res.json({
@@ -122,6 +128,7 @@ app.use("/resources", resourcesRoutes);
 app.use("/notifications", notificationsRoutes);
 app.use("/inspection-analysis", inspectionAnalysisRoutes);
 app.use("/ai", aiRoutes);
+app.use("/billing", billingRoutes);
 
 app.use(function (req, res, next) {
   throw new NotFoundError();

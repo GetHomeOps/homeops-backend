@@ -5,9 +5,11 @@ const db = require("../db");
 const OpenAI = require("openai");
 const { ensureLoggedIn, ensurePropertyAccess } = require("../middleware/auth");
 const { BadRequestError, ForbiddenError } = require("../expressError");
+const { checkAiTokenQuota } = require("../services/tierService");
 const MaintenanceEvent = require("../models/maintenanceEvent");
 const InspectionAnalysisResult = require("../models/inspectionAnalysisResult");
 const documentRagService = require("../services/documentRagService");
+const ApiUsage = require("../models/apiUsage");
 
 const router = express.Router();
 
@@ -32,6 +34,148 @@ async function resolvePropertyId(req, res, next) {
   } catch (err) {
     return next(err);
   }
+}
+
+/** Map user phrases to system IDs (e.g. "what about HVAC?" -> heating/ac). */
+const SYSTEM_PHRASE_MAP = {
+  hvac: ["heating", "ac"],
+  "air conditioning": "ac",
+  ac: "ac",
+  heating: "heating",
+  furnace: "heating",
+  roof: "roof",
+  roofing: "roof",
+  gutters: "gutters",
+  gutter: "gutters",
+  foundation: "foundation",
+  exterior: "exterior",
+  siding: "exterior",
+  windows: "windows",
+  "water heater": "waterHeating",
+  waterheating: "waterHeating",
+  electrical: "electrical",
+  plumbing: "plumbing",
+  safety: "safety",
+  inspections: "inspections",
+};
+
+function detectSystemSwitchIntent(message) {
+  const lower = (message || "").toLowerCase().trim();
+  const switchPattern = /\b(what about|how about|switch to|tell me about|change to)\s+(.+?)(?:\?|$)/i;
+  const match = lower.match(switchPattern);
+  if (!match) return null;
+  const phrase = (match[2] || "").trim().replace(/[.?]/g, "");
+  for (const [key, val] of Object.entries(SYSTEM_PHRASE_MAP)) {
+    if (phrase.includes(key)) {
+      return Array.isArray(val) ? val[0] : val;
+    }
+  }
+  return null;
+}
+
+/** Get or create conversation. Key: userId + propertyId + systemId (nullable). */
+async function getOrCreateConversation(userId, propertyId, systemId = null, systemContext = null) {
+  const existing = await db.query(
+    `SELECT id, system_id, system_context FROM ai_conversations
+     WHERE user_id = $1 AND property_id = $2 AND (system_id IS NOT DISTINCT FROM $3)
+     ORDER BY updated_at DESC LIMIT 1`,
+    [userId, propertyId, systemId || null]
+  );
+  if (existing.rows.length > 0) {
+    const row = existing.rows[0];
+    if (systemContext && Object.keys(systemContext).length > 0) {
+      await db.query(
+        `UPDATE ai_conversations SET system_id = $2, system_context = $3, updated_at = NOW() WHERE id = $1`,
+        [row.id, systemId, JSON.stringify(systemContext)]
+      );
+    }
+    return existing.rows[0].id;
+  }
+  const insert = await db.query(
+    `INSERT INTO ai_conversations (property_id, user_id, system_id, system_context)
+     VALUES ($1, $2, $3, $4::jsonb)
+     RETURNING id`,
+    [propertyId, userId, systemId, JSON.stringify(systemContext || {})]
+  );
+  return insert.rows[0].id;
+}
+
+/** Get last N messages for a conversation. */
+async function getConversationMessages(conversationId, limit = 10) {
+  const res = await db.query(
+    `SELECT role, content FROM ai_messages
+     WHERE conversation_id = $1
+     ORDER BY created_at DESC LIMIT $2`,
+    [conversationId, limit]
+  );
+  return res.rows.reverse().map((r) => ({ role: r.role, content: r.content }));
+}
+
+/** Save a message to the conversation. */
+async function saveMessage(conversationId, role, content, uiDirectives = null) {
+  await db.query(
+    `INSERT INTO ai_messages (conversation_id, role, content, ui_directives)
+     VALUES ($1, $2, $3, $4::jsonb)`,
+    [conversationId, role, content, uiDirectives ? JSON.stringify(uiDirectives) : null]
+  );
+}
+
+/** Build system-scoped context for a specific system from DB. */
+async function getSystemContextFromDb(propertyId, systemId) {
+  const systemKey = (systemId || "").toLowerCase();
+  const [analysisRes, maintenanceRes, recordsRes] = await Promise.all([
+    db.query(
+      `SELECT systems_detected, needs_attention, maintenance_suggestions
+       FROM inspection_analysis_results r
+       JOIN inspection_analysis_jobs j ON j.id = r.job_id
+       WHERE r.property_id = $1 AND j.status = 'completed'
+       ORDER BY r.created_at DESC LIMIT 1`,
+      [propertyId]
+    ),
+    db.query(
+      `SELECT system_key, system_name, scheduled_date, status
+       FROM maintenance_events
+       WHERE property_id = $1 AND (system_key = $2 OR system_key ILIKE $2)
+       ORDER BY scheduled_date DESC LIMIT 5`,
+      [propertyId, systemKey]
+    ),
+    db.query(
+      `SELECT system_key, completed_at, next_service_date, data
+       FROM property_maintenance
+       WHERE property_id = $1 AND (system_key = $2 OR system_key ILIKE $2)
+       ORDER BY completed_at DESC NULLS LAST LIMIT 5`,
+      [propertyId, systemKey]
+    ),
+  ]);
+  const analysis = analysisRes.rows[0] || {};
+  const systemsDetected = analysis.systems_detected || [];
+  const sysMatch = systemsDetected.find(
+    (s) => (s.systemType || s.system_key || "").toLowerCase() === systemKey
+  );
+  const needsAttention = (analysis.needs_attention || []).filter(
+    (n) => (n.systemType || n.system_type || "").toLowerCase() === systemKey
+  );
+  const maintenanceSuggestions = (analysis.maintenance_suggestions || []).filter(
+    (m) => (m.systemType || m.system_type || "").toLowerCase() === systemKey
+  );
+  const lastRecord = recordsRes.rows[0];
+  const upcomingEvents = maintenanceRes.rows.filter(
+    (e) => (e.scheduled_date || "") >= new Date().toISOString().slice(0, 10)
+  );
+  return {
+    systemCondition: sysMatch?.condition || "unknown",
+    lastMaintenanceDate: lastRecord?.completed_at || lastRecord?.next_service_date || null,
+    upcomingEvents: upcomingEvents.map((e) => ({
+      date: e.scheduled_date,
+      type: e.system_name || e.system_key,
+      status: e.status,
+    })),
+    inspectionFindingsForThisSystemOnly: [...needsAttention, ...maintenanceSuggestions].map((x) => ({
+      title: x.title || x.task || x.systemType,
+      severity: x.severity || x.priority,
+      suggestedAction: x.suggestedAction || x.rationale || x.suggestedWhen,
+    })),
+  };
 }
 
 /** Build property context for chat (profile + inspection summary + maintenance history + documents). */
@@ -133,13 +277,51 @@ async function getPropertyContext(propertyId) {
   return parts.join("\n");
 }
 
-/** POST /chat - Send message, get AI response. Body: { conversationId?, propertyId, message }. */
+/** GET /system-context - Get system-scoped context for a property+system. Query: propertyId, systemId. */
+router.get(
+  "/system-context",
+  ensureLoggedIn,
+  async function (req, res, next) {
+    try {
+      const { propertyId: rawPropId, systemId } = req.query || {};
+      const userId = res.locals.user.id;
+      if (!rawPropId || !systemId) {
+        throw new BadRequestError("propertyId and systemId are required");
+      }
+      req.params = { propertyId: rawPropId };
+      await resolvePropertyId(req, res, () => {});
+      const resolvedId = req.resolvedPropertyId;
+      if (!resolvedId) throw new BadRequestError("Invalid property");
+
+      const accessCheck = await db.query(
+        `SELECT 1 FROM property_users WHERE property_id = $1 AND user_id = $2`,
+        [resolvedId, userId]
+      );
+      if (accessCheck.rows.length === 0 && res.locals.user.role !== "super_admin" && res.locals.user.role !== "admin") {
+        throw new ForbiddenError("You do not have access to this property.");
+      }
+
+      const ctx = await getSystemContextFromDb(resolvedId, systemId);
+      const systemName = (systemId || "").charAt(0).toUpperCase() + (systemId || "").slice(1);
+      return res.json({
+        propertyId: resolvedId,
+        systemId,
+        systemName,
+        ...ctx,
+      });
+    } catch (err) {
+      return next(err);
+    }
+  }
+);
+
+/** POST /chat - Send message, get AI response. Body: { conversationId?, propertyId, message, systemContext? }. */
 router.post(
   "/chat",
   ensureLoggedIn,
   async function (req, res, next) {
     try {
-      const { conversationId, propertyId, message } = req.body || {};
+      const { conversationId, propertyId, message, systemContext: clientSystemContext } = req.body || {};
       const userId = res.locals.user.id;
 
       if (!propertyId || !message || typeof message !== "string") {
@@ -159,45 +341,146 @@ router.post(
         throw new ForbiddenError("You do not have access to this property.");
       }
 
+      const quotaCheck = await checkAiTokenQuota(userId);
+      if (!quotaCheck.allowed) {
+        throw new ForbiddenError(
+          `AI token quota exceeded (${quotaCheck.used}/${quotaCheck.quota} this month). Upgrade your plan for more.`
+        );
+      }
+
       const apiKey = process.env.OPENAI_API_KEY;
       if (!apiKey) {
         throw new BadRequestError("AI chat is not configured. Set OPENAI_API_KEY.");
       }
 
-      const [context, docContext] = await Promise.all([
+      let systemId = clientSystemContext?.systemId ?? null;
+      let systemName = clientSystemContext?.systemName ?? null;
+      let systemCtx = clientSystemContext ?? null;
+      let contextSwitched = false;
+
+      const switchTarget = detectSystemSwitchIntent(message);
+      if (switchTarget) {
+        systemId = switchTarget;
+        systemCtx = await getSystemContextFromDb(resolvedId, systemId);
+        systemName = systemId.charAt(0).toUpperCase() + systemId.slice(1);
+        contextSwitched = true;
+      } else if (clientSystemContext?.systemId) {
+        systemCtx = clientSystemContext;
+      } else if (conversationId) {
+        const convRes = await db.query(
+          `SELECT system_id, system_context FROM ai_conversations WHERE id = $1::uuid`,
+          [conversationId]
+        );
+        if (convRes.rows.length > 0 && convRes.rows[0].system_id) {
+          systemId = convRes.rows[0].system_id;
+          systemCtx = convRes.rows[0].system_context || {};
+          systemName = systemCtx.systemName || (systemId ? systemId.charAt(0).toUpperCase() + systemId.slice(1) : null);
+        }
+      }
+
+      let convId = conversationId;
+      if (convId) {
+        const verify = await db.query(
+          `SELECT id FROM ai_conversations WHERE id = $1::uuid AND user_id = $2 AND property_id = $3`,
+          [convId, userId, resolvedId]
+        );
+        if (verify.rows.length === 0) convId = null;
+      }
+      if (!convId) {
+        convId = await getOrCreateConversation(userId, resolvedId, systemId, systemCtx);
+      } else if (systemCtx && Object.keys(systemCtx).length > 0) {
+        await db.query(
+          `UPDATE ai_conversations SET system_id = $2, system_context = $3, updated_at = NOW() WHERE id = $1::uuid`,
+          [convId, systemId, JSON.stringify(systemCtx)]
+        );
+      }
+      const history = await getConversationMessages(convId, 10);
+      await saveMessage(convId, "user", message);
+
+      const [fullContext, docContext] = await Promise.all([
         getPropertyContext(resolvedId),
         documentRagService.getDocumentContext(resolvedId, message, { limit: 12 }).catch(() => ""),
       ]);
 
-      const contextParts = [`Property context:\n${context}`];
-      if (docContext) contextParts.push(docContext);
+      let contextBlock = `Property context:\n${fullContext}`;
+      if (docContext) contextBlock += `\n\n${docContext}`;
+
+      const systemCondition = systemCtx?.systemCondition ?? systemCtx?.system_condition;
+      const lastMaintenance = systemCtx?.lastMaintenanceDate ?? systemCtx?.last_maintenance_date;
+      const upcomingEvents = systemCtx?.upcomingEvents ?? systemCtx?.upcoming_events ?? [];
+      const findings = systemCtx?.inspectionFindingsForThisSystemOnly ?? systemCtx?.inspection_findings ?? [];
+
+      const shouldSuggestSchedule =
+        (systemCondition && ["poor", "fair"].includes(String(systemCondition).toLowerCase())) ||
+        (findings && findings.length > 0) ||
+        /\b(schedule|book|set up|arrange|yes|yeah|sure|please)\b/.test((message || "").toLowerCase());
+
+      let systemPrompt = `You are a property systems advisor. If a system context is provided, only discuss that system unless the user explicitly changes topic (e.g. "What about HVAC?").
+
+Use ONLY the property context and document excerpts provided. Cite specific details when relevant. Do not invent facts. If information is not in the context, say so.
+
+Be natural and helpful. Be thorough but concise.`;
+      if (systemId && systemName) {
+        systemPrompt += `
+
+CRITICAL: A system context is provided. You MUST discuss ONLY the ${systemName} system unless the user explicitly changes topic (e.g. "What about HVAC?"). Do NOT return the full property inspection summary—focus only on ${systemName}.`;
+        if (systemCondition) systemPrompt += ` Current ${systemName} condition: ${systemCondition}.`;
+        if (lastMaintenance) systemPrompt += ` Last maintenance: ${lastMaintenance}.`;
+        if (upcomingEvents?.length) systemPrompt += ` Upcoming events: ${JSON.stringify(upcomingEvents)}.`;
+        if (findings?.length) systemPrompt += ` Inspection findings for this system: ${JSON.stringify(findings)}.`;
+        systemPrompt += `
+
+Structure your response: Current condition → Risk level → Recommended action → Optional cost estimate range.`;
+      }
+      systemPrompt += `
+
+When relevant (poor/fair condition, overdue maintenance, no contractor assigned, or user asks to schedule), ALWAYS end with: "Would you like to schedule this now?" If the user says yes, okay, or similar, you will receive a follow-up—acknowledge and the system will offer scheduling.`;
+
+      if (contextSwitched) {
+        systemPrompt += `\n\nUser just switched context to ${systemName}. Briefly confirm: "Switching to ${systemName}." then provide system-scoped insights.`;
+      }
+
+      const messages = [
+        { role: "system", content: systemPrompt },
+        ...history.map((m) => ({ role: m.role, content: m.content })),
+        { role: "user", content: `${contextBlock}\n\nUser: ${message}` },
+      ];
 
       const openai = new OpenAI({ apiKey });
       const chatModel = process.env.AI_CHAT_MODEL || "gpt-4o-mini";
-      const systemPrompt = `You are a friendly, conversational property assistant. Use ONLY the property context and document excerpts provided. Cite specific details when relevant (e.g. "According to the inspection report...", "The maintenance suggestion states..."). Do not invent facts. If information is not in the context, say so.
-
-Be natural and helpful. Answer the user's question directly—don't steer every conversation toward scheduling. When it's contextually relevant (e.g. discussing maintenance that's due, inspection findings that need follow-up, or work that should be scheduled), you may naturally offer: "Would you like help scheduling that?" or "I can help you schedule that if you'd like." Do this sometimes, not on every message—only when it fits the conversation. If the user explicitly asks to schedule, book, or set up an appointment, offer to help. If they're just asking general questions, focus on answering. Be thorough but concise.`;
-
       const completion = await openai.chat.completions.create({
         model: chatModel,
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: `${contextParts.join("\n\n")}\n\nUser question: ${message}` },
-        ],
+        messages,
         temperature: 0.3,
       });
 
-      const assistantMessage = completion.choices[0]?.message?.content || "I couldn't generate a response.";
+      let assistantMessage = completion.choices[0]?.message?.content || "I couldn't generate a response.";
+      if (contextSwitched && !assistantMessage.toLowerCase().includes("switching")) {
+        assistantMessage = `Switching to ${systemName}.\n\n${assistantMessage}`;
+      }
+
+      const usage = completion.usage;
+      if (usage?.prompt_tokens != null && usage?.completion_tokens != null) {
+        ApiUsage.record({
+          userId,
+          endpoint: "ai/chat",
+          model: chatModel,
+          promptTokens: usage.prompt_tokens,
+          completionTokens: usage.completion_tokens,
+        }).catch(() => {});
+      }
 
       const lowerUserMsg = (message || "").toLowerCase();
       const hasScheduleIntent =
         /\b(schedule|book|set up|arrange)\b/.test(lowerUserMsg) &&
         (/\b(maintenance|inspection|appointment|service|visit)\b/.test(lowerUserMsg) ||
           /\b(schedule|book)\s+(a|an|the|my|this)\b/.test(lowerUserMsg) ||
-          /\b(want|would like|need|help me)\s+to\s+(schedule|book)\b/.test(lowerUserMsg));
+          /\b(want|would like|need|help me)\s+to\s+(schedule|book)\b/.test(lowerUserMsg)) ||
+        (/\b(yes|yeah|sure|please|ok|okay)\b/.test(lowerUserMsg) && lowerUserMsg.length < 50);
 
       let uiDirectives = null;
-      if (hasScheduleIntent) {
+      const effectiveSystemId = systemId || "general";
+      if (hasScheduleIntent || (shouldSuggestSchedule && /\b(yes|yeah|sure|please)\b/.test(lowerUserMsg))) {
         const analysisRes = await db.query(
           `SELECT maintenance_suggestions FROM inspection_analysis_results r
            JOIN inspection_analysis_jobs j ON j.id = r.job_id
@@ -206,14 +489,17 @@ Be natural and helpful. Answer the user's question directly—don't steer every 
           [resolvedId]
         );
         const suggestions = analysisRes.rows[0]?.maintenance_suggestions || [];
-        let tasks = suggestions.slice(0, 3).map((s) => ({
-          systemType: s.systemType,
-          task: s.task || s.systemType,
-          suggestedWhen: s.suggestedWhen,
-          priority: s.priority,
-        }));
+        let tasks = suggestions
+          .filter((s) => !systemId || (s.systemType || "").toLowerCase() === effectiveSystemId)
+          .slice(0, 3)
+          .map((s) => ({
+            systemType: s.systemType || effectiveSystemId,
+            task: s.task || s.systemType || systemName || "Maintenance",
+            suggestedWhen: s.suggestedWhen,
+            priority: s.priority,
+          }));
         if (tasks.length === 0) {
-          tasks = [{ systemType: "general", task: "Maintenance / inspection", suggestedWhen: "as needed", priority: "medium" }];
+          tasks = [{ systemType: effectiveSystemId, task: systemName || "Maintenance / inspection", suggestedWhen: "as needed", priority: "medium" }];
         }
         const draftRes = await db.query(
           `INSERT INTO ai_action_drafts (property_id, user_id, status, tasks)
@@ -228,10 +514,15 @@ Be natural and helpful. Answer the user's question directly—don't steer every 
         };
       }
 
+      await saveMessage(convId, "assistant", assistantMessage, uiDirectives);
+
       return res.json({
-        conversationId: conversationId || null,
+        conversationId: convId,
         assistantMessage,
         uiDirectives,
+        systemId: systemId || undefined,
+        systemName: systemName || undefined,
+        contextSwitched: contextSwitched || undefined,
       });
     } catch (err) {
       return next(err);

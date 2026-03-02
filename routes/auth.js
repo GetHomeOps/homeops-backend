@@ -50,11 +50,25 @@ const db = require("../db");
 const OAUTH_STATE_COOKIE = "oauth_state";
 const OAUTH_STATE_MAX_AGE = 10 * 60; // 10 minutes
 
-async function createDefaultSubscription(accountId, userRole) {
+const TIER_TO_PLAN_CODE = {
+  free: "homeowner_free", maintain: "homeowner_maintain", win: "homeowner_win",
+  basic: "agent_basic", pro: "agent_pro", premium: "agent_premium",
+};
+
+async function createDefaultSubscription(accountId, userRole, subscriptionTier) {
   try {
-    const productName = (userRole === 'agent') ? 'professional' : 'basic';
-    const product = await SubscriptionProduct.getByName(productName)
-      || await SubscriptionProduct.getByName("basic");
+    const planCode = subscriptionTier ? TIER_TO_PLAN_CODE[subscriptionTier] : null;
+    let product = null;
+    if (planCode) {
+      const res = await db.query(`SELECT id FROM subscription_products WHERE code = $1`, [planCode]);
+      if (res.rows[0]) product = { id: res.rows[0].id };
+    }
+    if (!product) {
+      const fallback = (userRole === "agent") ? "agent_basic" : "homeowner_free";
+      const res = await db.query(`SELECT id FROM subscription_products WHERE code = $1`, [fallback]);
+      product = res.rows[0] ? { id: res.rows[0].id } : null;
+      if (!product) product = await SubscriptionProduct.getByName("basic");
+    }
     if (!product) return;
 
     const today = new Date();
@@ -517,14 +531,15 @@ router.post("/complete-onboarding", ensureLoggedIn, async function (req, res, ne
       }
     }
 
-    // Create default subscription based on tier (for account linking)
+    // Create default subscription only for FREE tier; paid tiers get subscription from Stripe webhook
+    const FREE_TIERS = ["free"];
     const accountResult = await db.query(
       `SELECT account_id FROM account_users WHERE user_id = $1 LIMIT 1`,
       [userId]
     );
-    if (accountResult.rows[0]) {
+    if (accountResult.rows[0] && FREE_TIERS.includes(subscriptionTier)) {
       try {
-        await createDefaultSubscription(accountResult.rows[0].account_id, role);
+        await createDefaultSubscription(accountResult.rows[0].account_id, role, subscriptionTier);
       } catch (subErr) {
         console.error("Warning: failed to create subscription after onboarding", subErr.message);
       }

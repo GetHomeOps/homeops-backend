@@ -17,6 +17,7 @@ const { validateGoogleOAuthConfig } = require('./config');
 const User = require('./models/user');
 const Account = require('./models/account');
 const SubscriptionProduct = require('./models/subscriptionProduct');
+const { ensureStripePlans } = require('./services/planSeedService');
 const fs = require('fs');
 
 const app = require('./app.js');
@@ -80,7 +81,12 @@ async function startServer() {
       }
     }
 
-    await SubscriptionProduct.initializeDefaultProducts();
+    try {
+      await ensureStripePlans();
+    } catch (planErr) {
+      console.warn('[startup] Plan seed failed (plan_limits/plan_prices may be missing):', planErr.message);
+      await SubscriptionProduct.initializeDefaultProducts();
+    }
 
     app.listen(PORT, '0.0.0.0', () => {
       console.log(`Backend running on port ${PORT}`);

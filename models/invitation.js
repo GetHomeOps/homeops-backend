@@ -123,6 +123,34 @@ class Invitation {
     return result.rows;
   }
 
+  /** Get invitations received by a user (where invitee_email matches user's email) */
+  static async getReceivedByEmail(inviteeEmail, { status = "pending" } = {}) {
+    const clauses = [`LOWER(i.invitee_email) = LOWER($1)`];
+    const values = [inviteeEmail];
+    if (status) {
+      values.push(status);
+      clauses.push(`i.status = $${values.length}`);
+    }
+    const result = await db.query(
+      `SELECT i.id, i.type, i.invitee_email AS "inviteeEmail",
+              i.account_id AS "accountId", i.property_id AS "propertyId",
+              p.property_uid AS "propertyUid",
+              i.intended_role AS "intendedRole", i.status,
+              i.expires_at AS "expiresAt", i.created_at AS "createdAt",
+              u.name AS "inviterName", u.email AS "inviterEmail",
+              a.name AS "accountName",
+              p.address AS "propertyAddress"
+       FROM invitations i
+       LEFT JOIN users u ON u.id = i.inviter_user_id
+       LEFT JOIN accounts a ON a.id = i.account_id
+       LEFT JOIN properties p ON p.id = i.property_id
+       WHERE ${clauses.join(" AND ")}
+       ORDER BY i.created_at DESC`,
+      values
+    );
+    return result.rows;
+  }
+
   static async accept(id, acceptedByUserId) {
     const result = await db.query(
       `UPDATE invitations

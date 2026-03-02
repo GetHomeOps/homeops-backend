@@ -80,4 +80,13 @@ module.exports = {
   // S3 config;
   AWS_REGION: process.env.AWS_REGION || "us-east-2",
   AWS_S3_BUCKET: process.env.AWS_S3_BUCKET,
+
+  // Stripe billing (env-only setup)
+  STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY,
+  STRIPE_WEBHOOK_SECRET: process.env.STRIPE_WEBHOOK_SECRET,
+  STRIPE_PUBLISHABLE_KEY: process.env.STRIPE_PUBLISHABLE_KEY,
+  STRIPE_SUCCESS_URL: process.env.STRIPE_SUCCESS_URL || (process.env.APP_BASE_URL ? `${process.env.APP_BASE_URL}/#/billing/success` : null),
+  STRIPE_CANCEL_URL: process.env.STRIPE_CANCEL_URL || (process.env.APP_BASE_URL ? `${process.env.APP_BASE_URL}/#/onboarding` : null),
+  APP_BASE_URL: process.env.APP_BASE_URL || process.env.APP_WEB_ORIGIN || "http://localhost:5173",
+  BILLING_MOCK_MODE: process.env.BILLING_MOCK_MODE === "true",
 };
