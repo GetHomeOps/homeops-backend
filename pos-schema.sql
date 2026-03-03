@@ -722,6 +722,92 @@ CREATE INDEX idx_notifications_created_at ON notifications(created_at DESC);
 CREATE INDEX idx_notifications_read_at ON notifications(read_at) WHERE read_at IS NULL;
 
 -- ============================================================
+-- Communications (Intercom-style: compose → audience → send)
+-- Templates, structured content, scheduling, delivery records, auto-send rules
+-- ============================================================
+
+CREATE TABLE comm_templates (
+    id SERIAL PRIMARY KEY,
+    account_id INTEGER REFERENCES accounts(id) ON DELETE CASCADE,
+    name VARCHAR(200) NOT NULL DEFAULT 'Default',
+    logo_key TEXT,
+    primary_color VARCHAR(7) DEFAULT '#456564',
+    secondary_color VARCHAR(7) DEFAULT '#f9fafb',
+    footer_text TEXT DEFAULT '',
+    is_default BOOLEAN DEFAULT true,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_comm_templates_account ON comm_templates(account_id);
+
+CREATE TABLE communications (
+    id SERIAL PRIMARY KEY,
+    account_id INTEGER REFERENCES accounts(id) ON DELETE CASCADE,
+    template_id INTEGER REFERENCES comm_templates(id) ON DELETE SET NULL,
+    subject VARCHAR(500) NOT NULL,
+    content JSONB NOT NULL DEFAULT '{"body":""}',
+    image_key TEXT,
+    recipient_mode VARCHAR(50),
+    recipient_ids JSONB DEFAULT '[]',
+    delivery_channel VARCHAR(20) DEFAULT 'in_app' CHECK (delivery_channel IN ('email', 'in_app', 'both')),
+    status VARCHAR(20) DEFAULT 'draft',
+    scheduled_at TIMESTAMPTZ,
+    sent_at TIMESTAMPTZ,
+    recipient_count INTEGER DEFAULT 0,
+    created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_communications_account ON communications(account_id);
+CREATE INDEX idx_communications_status ON communications(status);
+CREATE INDEX idx_communications_scheduled ON communications(scheduled_at) WHERE status = 'scheduled';
+CREATE INDEX idx_communications_created_by ON communications(created_by);
+
+CREATE TABLE comm_attachments (
+    id SERIAL PRIMARY KEY,
+    communication_id INTEGER NOT NULL REFERENCES communications(id) ON DELETE CASCADE,
+    type VARCHAR(20) NOT NULL,
+    file_key TEXT,
+    url TEXT,
+    filename VARCHAR(500),
+    sort_order INTEGER DEFAULT 0,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_comm_attachments_comm ON comm_attachments(communication_id);
+
+CREATE TABLE comm_recipients (
+    id SERIAL PRIMARY KEY,
+    communication_id INTEGER NOT NULL REFERENCES communications(id) ON DELETE CASCADE,
+    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    channel VARCHAR(20) NOT NULL DEFAULT 'in_app',
+    status VARCHAR(20) DEFAULT 'pending',
+    delivered_at TIMESTAMPTZ,
+    read_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_comm_recipients_comm ON comm_recipients(communication_id);
+CREATE INDEX idx_comm_recipients_user ON comm_recipients(user_id);
+CREATE INDEX idx_comm_recipients_status ON comm_recipients(status) WHERE status != 'read';
+
+CREATE TABLE comm_rules (
+    id SERIAL PRIMARY KEY,
+    account_id INTEGER REFERENCES accounts(id) ON DELETE CASCADE,
+    communication_id INTEGER NOT NULL REFERENCES communications(id) ON DELETE CASCADE,
+    trigger_event VARCHAR(100) NOT NULL,
+    trigger_role VARCHAR(50),
+    is_active BOOLEAN DEFAULT true,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_comm_rules_active ON comm_rules(is_active) WHERE is_active = true;
+CREATE INDEX idx_comm_rules_comm ON comm_rules(communication_id);
+
+-- ============================================================
 -- Inspection Analysis (async report analysis)
 -- ============================================================
 
@@ -776,6 +862,40 @@ CREATE TABLE property_ai_profiles (
 );
 
 -- ============================================================
+-- Property AI Reanalysis (dynamic re-analysis on document/maintenance)
+-- ============================================================
+
+CREATE TABLE property_ai_summary_state (
+    property_id INTEGER PRIMARY KEY REFERENCES properties(id) ON DELETE CASCADE,
+    updated_systems JSONB DEFAULT '[]',
+    newly_detected_systems JSONB DEFAULT '[]',
+    maintenance_recommendations JSONB DEFAULT '[]',
+    risk_flags JSONB DEFAULT '[]',
+    summary_delta TEXT,
+    report_analysis TEXT,
+    last_reanalysis_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_property_ai_summary_state_updated
+    ON property_ai_summary_state(updated_at DESC);
+
+CREATE TABLE property_ai_reanalysis_audit (
+    id SERIAL PRIMARY KEY,
+    property_id INTEGER NOT NULL REFERENCES properties(id) ON DELETE CASCADE,
+    trigger_source VARCHAR(50) NOT NULL,
+    trigger_id INTEGER,
+    previous_state JSONB,
+    new_state JSONB,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_property_ai_reanalysis_audit_property
+    ON property_ai_reanalysis_audit(property_id);
+CREATE INDEX idx_property_ai_reanalysis_audit_created
+    ON property_ai_reanalysis_audit(created_at DESC);
+
+-- ============================================================
 -- AI Conversations and Messages
 -- ============================================================
 
@@ -785,17 +905,19 @@ CREATE TABLE ai_conversations (
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     system_id VARCHAR(50),
     system_context JSONB DEFAULT '{}',
+    context_summary TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE INDEX idx_ai_conversations_property ON ai_conversations(property_id);
 CREATE INDEX idx_ai_conversations_user ON ai_conversations(user_id);
+CREATE INDEX idx_ai_conversations_user_property_updated ON ai_conversations(user_id, property_id, updated_at DESC);
 
 CREATE TABLE ai_messages (
     id SERIAL PRIMARY KEY,
     conversation_id UUID NOT NULL REFERENCES ai_conversations(id) ON DELETE CASCADE,
-    role VARCHAR(20) NOT NULL CHECK (role IN ('user', 'assistant')),
+    role VARCHAR(20) NOT NULL CHECK (role IN ('user', 'assistant', 'system')),
     content TEXT NOT NULL,
     ui_directives JSONB,
     created_at TIMESTAMPTZ DEFAULT NOW()

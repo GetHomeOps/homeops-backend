@@ -108,23 +108,57 @@ function computeAiConditionForSystem(systemKey, analysis) {
 }
 
 /**
+ * Compute aiCondition from property_ai_summary_state (reanalysis state).
+ * Prefer this over inspection analysis when available.
+ */
+function computeAiConditionFromSummaryState(systemKey, summaryState) {
+  if (!summaryState || !systemKey) return null;
+  const updatedSystems = summaryState.updated_systems || summaryState.updatedSystems || [];
+  const match = updatedSystems.find((s) => {
+    const name = (s.name || s.systemType || s.system_key || "").toLowerCase();
+    const key = String(systemKey).toLowerCase().replace(/-/g, "");
+    return name === key || name.includes(key) || key.includes(name);
+  });
+  if (!match) return null;
+  const condition = (match.condition || "unknown").toLowerCase();
+  if (!["excellent", "good", "fair", "poor"].includes(condition)) return null;
+  const confidence = match.confidence ?? 0.5;
+  if (confidence < 0.5) return null;
+  return {
+    status: condition,
+    source: "property_reanalysis",
+    confidence,
+    needsReview: match.needsReview || false,
+  };
+}
+
+/**
  * Enrich systems array with aiCondition per system.
+ * Prefers property_ai_summary_state (reanalysis) over inspection_analysis_results when available.
  * @param {Array} systems - From property_systems
  * @param {Object|null} analysis - Inspection analysis for property
+ * @param {Object|null} aiSummaryState - Property AI summary state from reanalysis
  * @returns {Array} Systems with aiCondition added
  */
-function enrichSystemsWithAiCondition(systems, analysis) {
+function enrichSystemsWithAiCondition(systems, analysis, aiSummaryState = null) {
   if (!Array.isArray(systems)) return systems;
-  if (!analysis) return systems;
+  const hasReanalysis = aiSummaryState && (aiSummaryState.updated_systems || []).length > 0;
 
   return systems.map((s) => {
     const systemKey = s.system_key || s.systemKey;
-    const aiCondition = computeAiConditionForSystem(systemKey, analysis);
+    let aiCondition = null;
+    if (hasReanalysis) {
+      aiCondition = computeAiConditionFromSummaryState(systemKey, aiSummaryState);
+    }
+    if (!aiCondition && analysis) {
+      aiCondition = computeAiConditionForSystem(systemKey, analysis);
+    }
     return { ...s, aiCondition: aiCondition || undefined };
   });
 }
 
 module.exports = {
   computeAiConditionForSystem,
+  computeAiConditionFromSummaryState,
   enrichSystemsWithAiCondition,
 };

@@ -5,6 +5,7 @@ const router = express.Router();
 const PropertyDocument = require("../models/propertyDocuments");
 const { ensureLoggedIn, ensurePropertyAccess } = require("../middleware/auth");
 const documentRagService = require("../services/documentRagService");
+const { triggerReanalysisOnDocument } = require("../services/ai/propertyReanalysisService");
 
 /** Set req.params.propertyId from document id so ensurePropertyAccess can run. */
 async function loadPropertyIdFromDocument(req, res, next) {
@@ -33,6 +34,10 @@ router.post("/", ensureLoggedIn, ensurePropertyAccess({ fromBody: "property_id",
       if (!err?.message?.includes("pgvector not available")) {
         console.error("[documentRag] Ingest on upload failed:", err.message);
       }
+    });
+    // Trigger AI reanalysis when new document is added (async, non-blocking)
+    triggerReanalysisOnDocument(property_id, document.id).catch((err) => {
+      console.error("[propertyReanalysis] Document trigger failed:", err.message);
     });
     return res.status(201).json({ document });
   } catch (err) {

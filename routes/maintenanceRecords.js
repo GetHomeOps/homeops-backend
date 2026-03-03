@@ -5,6 +5,7 @@ const jsonschema = require("jsonschema");
 const { ensureLoggedIn, ensurePropertyAccess } = require("../middleware/auth");
 const { BadRequestError } = require("../expressError");
 const MaintenanceRecord = require("../models/maintenanceRecord");
+const { triggerReanalysisOnMaintenance } = require("../services/ai/propertyReanalysisService");
 const maintenanceRecordNewSchema = require("../schemas/maintenanceRecordNew.json");
 const maintenanceRecordsBatchSchema = require("../schemas/maintenanceRecordsBatch.json");
 const maintenanceRecordUpdateSchema = require("../schemas/maintenanceRecord.json");
@@ -31,6 +32,19 @@ router.post("/:PropertyId", ensureLoggedIn, ensurePropertyAccess({ param: "Prope
     }
     const { maintenanceRecords } = req.body;
     const created = await MaintenanceRecord.createMany(maintenanceRecords);
+    // Trigger AI reanalysis per property (async, non-blocking)
+    const byProperty = new Map();
+    for (const r of created) {
+      if (!byProperty.has(r.property_id)) byProperty.set(r.property_id, []);
+      byProperty.get(r.property_id).push(r);
+    }
+    for (const [propId, records] of byProperty) {
+      for (const rec of records) {
+        triggerReanalysisOnMaintenance(propId, rec).catch((err) =>
+          console.error("[propertyReanalysis] Maintenance trigger failed:", err.message)
+        );
+      }
+    }
     return res.status(201).json({ maintenanceRecords: created });
   } catch (err) {
     return next(err);
@@ -50,6 +64,9 @@ router.post("/record/:PropertyId", ensureLoggedIn, ensurePropertyAccess({ param:
       ...req.body,
       property_id: propertyId,
     });
+    triggerReanalysisOnMaintenance(propertyId, maintenanceRecord).catch((err) =>
+      console.error("[propertyReanalysis] Maintenance trigger failed:", err.message)
+    );
     return res.status(201).json({ maintenanceRecord });
   } catch (err) {
     return next(err);
@@ -77,6 +94,9 @@ router.patch("/:recordId", ensureLoggedIn, loadPropertyIdFromRecord, ensurePrope
       throw new BadRequestError(errs);
     }
     const maintenance = await MaintenanceRecord.update(recordId, req.body);
+    triggerReanalysisOnMaintenance(maintenance.property_id, maintenance).catch((err) =>
+      console.error("[propertyReanalysis] Maintenance trigger failed:", err.message)
+    );
     return res.json({ maintenance });
   } catch (err) {
     return next(err);

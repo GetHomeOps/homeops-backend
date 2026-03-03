@@ -10,8 +10,23 @@ const MaintenanceEvent = require("../models/maintenanceEvent");
 const InspectionAnalysisResult = require("../models/inspectionAnalysisResult");
 const documentRagService = require("../services/documentRagService");
 const ApiUsage = require("../models/apiUsage");
+const { getAiSummaryForProperty, getReanalysisAudit } = require("../services/ai/propertyReanalysisService");
+const {
+  SLIDING_WINDOW_SIZE,
+  MAX_RESPONSE_TOKENS,
+  CHAT_TEMPERATURE,
+  detectIntent,
+  buildFocusedContext,
+  getWindowedMessages,
+  generateAndStoreSummary,
+  sanitizeResponse,
+} = require("../services/aiChatService");
 
 const router = express.Router();
+
+// -----------------------------------------------------------------
+// Helpers
+// -----------------------------------------------------------------
 
 async function resolvePropertyId(req, res, next) {
   try {
@@ -36,7 +51,16 @@ async function resolvePropertyId(req, res, next) {
   }
 }
 
-/** Map user phrases to system IDs (e.g. "what about HVAC?" -> heating/ac). */
+async function ensurePropertyAccessForUser(resolvedId, userId, userRole) {
+  const accessCheck = await db.query(
+    `SELECT 1 FROM property_users WHERE property_id = $1 AND user_id = $2`,
+    [resolvedId, userId]
+  );
+  if (accessCheck.rows.length === 0 && userRole !== "super_admin" && userRole !== "admin") {
+    throw new ForbiddenError("You do not have access to this property.");
+  }
+}
+
 const SYSTEM_PHRASE_MAP = {
   hvac: ["heating", "ac"],
   "air conditioning": "ac",
@@ -73,10 +97,9 @@ function detectSystemSwitchIntent(message) {
   return null;
 }
 
-/** Get or create conversation. Key: userId + propertyId + systemId (nullable). */
 async function getOrCreateConversation(userId, propertyId, systemId = null, systemContext = null) {
   const existing = await db.query(
-    `SELECT id, system_id, system_context FROM ai_conversations
+    `SELECT id, system_id, system_context, context_summary FROM ai_conversations
      WHERE user_id = $1 AND property_id = $2 AND (system_id IS NOT DISTINCT FROM $3)
      ORDER BY updated_at DESC LIMIT 1`,
     [userId, propertyId, systemId || null]
@@ -89,7 +112,7 @@ async function getOrCreateConversation(userId, propertyId, systemId = null, syst
         [row.id, systemId, JSON.stringify(systemContext)]
       );
     }
-    return existing.rows[0].id;
+    return { id: row.id, contextSummary: row.context_summary };
   }
   const insert = await db.query(
     `INSERT INTO ai_conversations (property_id, user_id, system_id, system_context)
@@ -97,30 +120,21 @@ async function getOrCreateConversation(userId, propertyId, systemId = null, syst
      RETURNING id`,
     [propertyId, userId, systemId, JSON.stringify(systemContext || {})]
   );
-  return insert.rows[0].id;
+  return { id: insert.rows[0].id, contextSummary: null };
 }
 
-/** Get last N messages for a conversation. */
-async function getConversationMessages(conversationId, limit = 10) {
-  const res = await db.query(
-    `SELECT role, content FROM ai_messages
-     WHERE conversation_id = $1
-     ORDER BY created_at DESC LIMIT $2`,
-    [conversationId, limit]
-  );
-  return res.rows.reverse().map((r) => ({ role: r.role, content: r.content }));
-}
-
-/** Save a message to the conversation. */
 async function saveMessage(conversationId, role, content, uiDirectives = null) {
   await db.query(
     `INSERT INTO ai_messages (conversation_id, role, content, ui_directives)
      VALUES ($1, $2, $3, $4::jsonb)`,
     [conversationId, role, content, uiDirectives ? JSON.stringify(uiDirectives) : null]
   );
+  await db.query(
+    `UPDATE ai_conversations SET updated_at = NOW() WHERE id = $1`,
+    [conversationId]
+  );
 }
 
-/** Build system-scoped context for a specific system from DB. */
 async function getSystemContextFromDb(propertyId, systemId) {
   const systemKey = (systemId || "").toLowerCase();
   const [analysisRes, maintenanceRes, recordsRes] = await Promise.all([
@@ -178,106 +192,53 @@ async function getSystemContextFromDb(propertyId, systemId) {
   };
 }
 
-/** Build property context for chat (profile + inspection summary + maintenance history + documents). */
-async function getPropertyContext(propertyId) {
-  const [propRes, analysisRes, maintenanceRes, recordsRes, docsRes] = await Promise.all([
-    db.query(
-      `SELECT property_name, address, city, state, zip, year_built
-       FROM properties WHERE id = $1`,
-      [propertyId]
-    ),
-    db.query(
-      `SELECT condition_rating, condition_rationale, summary, systems_detected, needs_attention, maintenance_suggestions
-       FROM inspection_analysis_results r
-       JOIN inspection_analysis_jobs j ON j.id = r.job_id
-       WHERE r.property_id = $1 AND j.status = 'completed'
-       ORDER BY r.created_at DESC LIMIT 1`,
-      [propertyId]
-    ),
-    db.query(
-      `SELECT system_key, system_name, scheduled_date, status
-       FROM maintenance_events
-       WHERE property_id = $1
-       ORDER BY scheduled_date DESC
-       LIMIT 10`,
-      [propertyId]
-    ),
-    db.query(
-      `SELECT system_key, completed_at, next_service_date, data, status
-       FROM property_maintenance
-       WHERE property_id = $1
-       ORDER BY completed_at DESC NULLS LAST
-       LIMIT 15`,
-      [propertyId]
-    ),
-    db.query(
-      `SELECT document_name, document_date, document_type, system_key
-       FROM property_documents
-       WHERE property_id = $1
-       ORDER BY document_date DESC`,
-      [propertyId]
-    ),
-  ]);
+// -----------------------------------------------------------------
+// System prompt builder
+// -----------------------------------------------------------------
 
-  const prop = propRes.rows[0] || {};
-  const analysis = analysisRes.rows[0] || {};
-  const maintenance = maintenanceRes.rows || [];
-  const records = recordsRes.rows || [];
-  const docs = docsRes.rows || [];
-  const parts = [];
-  parts.push(`Property: ${prop.property_name || "Unnamed"} at ${[prop.address, prop.city, prop.state].filter(Boolean).join(", ")}`);
-  if (prop.year_built) parts.push(`Year built: ${prop.year_built}`);
-  if (analysis.condition_rating) parts.push(`Condition (from inspection): ${analysis.condition_rating}`);
-  if (analysis.condition_rationale) parts.push(`Condition rationale: ${analysis.condition_rationale}`);
-  if (analysis.summary) parts.push(`Inspection summary: ${analysis.summary}`);
-  if (analysis.systems_detected?.length) {
-    parts.push(`Systems detected: ${analysis.systems_detected.map((s) => `${s.systemType}${s.evidence ? ` (${s.evidence})` : ""}`).join("; ")}`);
+function buildSystemPrompt(systemId, systemName, systemCtx, contextSwitched) {
+  const systemCondition = systemCtx?.systemCondition ?? systemCtx?.system_condition;
+  const lastMaintenance = systemCtx?.lastMaintenanceDate ?? systemCtx?.last_maintenance_date;
+  const upcomingEvents = systemCtx?.upcomingEvents ?? systemCtx?.upcoming_events ?? [];
+  const findings = systemCtx?.inspectionFindingsForThisSystemOnly ?? systemCtx?.inspection_findings ?? [];
+
+  let prompt = `You are a property advisor. Answer only the specific question asked. Do not summarize the entire property unless explicitly requested.
+
+Respond in clean, professional plain text. Do not use markdown formatting such as asterisks, bold, italic, headings, or special characters. Use plain dashes for lists.
+
+Use ONLY the property context and document excerpts provided. Cite specific details when relevant. Do not invent facts. If information is not in the context, say so.
+
+Be natural and helpful. Be thorough but concise.`;
+
+  if (systemId && systemName) {
+    prompt += `
+
+You MUST discuss ONLY the ${systemName} system unless the user explicitly changes topic. Do NOT return the full property inspection summary — focus only on ${systemName}.`;
+    if (systemCondition) prompt += ` Current ${systemName} condition: ${systemCondition}.`;
+    if (lastMaintenance) prompt += ` Last maintenance: ${lastMaintenance}.`;
+    if (upcomingEvents?.length) prompt += ` Upcoming events: ${JSON.stringify(upcomingEvents)}.`;
+    if (findings?.length) prompt += ` Inspection findings for this system: ${JSON.stringify(findings)}.`;
+    prompt += `
+
+Structure your response: Current condition, Risk level, Recommended action, Optional cost estimate range.`;
   }
-  if (analysis.needs_attention?.length) {
-    const needsParts = analysis.needs_attention.map((n) => {
-      let s = `- ${n.title}`;
-      if (n.severity) s += ` [${n.severity}]`;
-      if (n.suggestedAction) s += ` — Action: ${n.suggestedAction}`;
-      if (n.evidence) s += ` — Evidence: "${n.evidence}"`;
-      return s;
-    });
-    parts.push(`Needs attention:\n${needsParts.join("\n")}`);
+
+  prompt += `
+
+When relevant (poor/fair condition, overdue maintenance, no contractor assigned, or user asks to schedule), end with: "Would you like to schedule this now?" If the user confirms, acknowledge it and the system will offer scheduling.`;
+
+  if (contextSwitched) {
+    prompt += `\n\nUser just switched context to ${systemName}. Briefly confirm: "Switching to ${systemName}." then provide system-scoped insights.`;
   }
-  if (analysis.maintenance_suggestions?.length) {
-    const maintParts = analysis.maintenance_suggestions.map((m) => {
-      let s = `- ${m.task || m.systemType}`;
-      if (m.suggestedWhen) s += ` (${m.suggestedWhen})`;
-      if (m.priority) s += ` [${m.priority}]`;
-      if (m.rationale) s += ` — ${m.rationale}`;
-      return s;
-    });
-    parts.push(`Maintenance suggestions:\n${maintParts.join("\n")}`);
-  }
-  if (maintenance.length > 0) {
-    parts.push(`Scheduled maintenance events: ${maintenance.map((m) => `${m.system_name || m.system_key} (${m.scheduled_date}, ${m.status})`).join("; ")}`);
-  }
-  if (records.length > 0) {
-    const recordParts = records.map((r) => {
-      let s = `${r.system_key}`;
-      if (r.completed_at) s += ` completed ${r.completed_at}`;
-      if (r.next_service_date) s += ` next due ${r.next_service_date}`;
-      if (r.status) s += ` [${r.status}]`;
-      if (r.data && typeof r.data === "object" && Object.keys(r.data).length) {
-        const details = r.data.description || r.data.notes || r.data.summary;
-        if (details) s += ` — ${details}`;
-      }
-      return s;
-    });
-    parts.push(`Completed maintenance records:\n${recordParts.join("\n")}`);
-  }
-  if (docs.length > 0) {
-    const docParts = docs.map((d) => `${d.document_name} (${d.document_date}, ${d.document_type}, ${d.system_key})`);
-    parts.push(`Documents on file: ${docParts.join("; ")}`);
-  }
-  return parts.join("\n");
+
+  return prompt;
 }
 
-/** GET /system-context - Get system-scoped context for a property+system. Query: propertyId, systemId. */
+// -----------------------------------------------------------------
+// Routes
+// -----------------------------------------------------------------
+
+/** GET /system-context */
 router.get(
   "/system-context",
   ensureLoggedIn,
@@ -293,21 +254,81 @@ router.get(
       const resolvedId = req.resolvedPropertyId;
       if (!resolvedId) throw new BadRequestError("Invalid property");
 
-      const accessCheck = await db.query(
-        `SELECT 1 FROM property_users WHERE property_id = $1 AND user_id = $2`,
-        [resolvedId, userId]
-      );
-      if (accessCheck.rows.length === 0 && res.locals.user.role !== "super_admin" && res.locals.user.role !== "admin") {
-        throw new ForbiddenError("You do not have access to this property.");
-      }
+      await ensurePropertyAccessForUser(resolvedId, userId, res.locals.user.role);
 
       const ctx = await getSystemContextFromDb(resolvedId, systemId);
       const systemName = (systemId || "").charAt(0).toUpperCase() + (systemId || "").slice(1);
+      return res.json({ propertyId: resolvedId, systemId, systemName, ...ctx });
+    } catch (err) {
+      return next(err);
+    }
+  }
+);
+
+/** GET /conversations/latest — Load the most recent conversation for a property+user. */
+router.get(
+  "/conversations/latest",
+  ensureLoggedIn,
+  async function (req, res, next) {
+    try {
+      const { propertyId: rawPropId } = req.query || {};
+      const userId = res.locals.user.id;
+      if (!rawPropId) throw new BadRequestError("propertyId is required");
+
+      req.params = { propertyId: rawPropId };
+      await resolvePropertyId(req, res, () => {});
+      const resolvedId = req.resolvedPropertyId;
+      if (!resolvedId) throw new BadRequestError("Invalid property");
+
+      await ensurePropertyAccessForUser(resolvedId, userId, res.locals.user.role);
+
+      const convRes = await db.query(
+        `SELECT id, system_id, system_context, context_summary, created_at, updated_at
+         FROM ai_conversations
+         WHERE user_id = $1 AND property_id = $2
+         ORDER BY updated_at DESC LIMIT 1`,
+        [userId, resolvedId]
+      );
+
+      if (convRes.rows.length === 0) {
+        return res.json({ conversation: null, messages: [] });
+      }
+
+      const conv = convRes.rows[0];
+      const msgRes = await db.query(
+        `SELECT id, role, content, ui_directives, created_at
+         FROM ai_messages
+         WHERE conversation_id = $1
+         ORDER BY created_at ASC`,
+        [conv.id]
+      );
+
+      const analysisRes = await db.query(
+        `SELECT r.created_at AS analysis_date
+         FROM inspection_analysis_results r
+         JOIN inspection_analysis_jobs j ON j.id = r.job_id
+         WHERE r.property_id = $1 AND j.status = 'completed'
+         ORDER BY r.created_at DESC LIMIT 1`,
+        [resolvedId]
+      );
+
       return res.json({
-        propertyId: resolvedId,
-        systemId,
-        systemName,
-        ...ctx,
+        conversation: {
+          id: conv.id,
+          systemId: conv.system_id,
+          systemContext: conv.system_context,
+          contextSummary: conv.context_summary,
+          createdAt: conv.created_at,
+          updatedAt: conv.updated_at,
+        },
+        messages: msgRes.rows.map((m) => ({
+          id: m.id,
+          role: m.role,
+          content: m.content,
+          uiDirectives: m.ui_directives,
+          createdAt: m.created_at,
+        })),
+        inspectionAnalysisDate: analysisRes.rows[0]?.analysis_date || null,
       });
     } catch (err) {
       return next(err);
@@ -315,7 +336,35 @@ router.get(
   }
 );
 
-/** POST /chat - Send message, get AI response. Body: { conversationId?, propertyId, message, systemContext? }. */
+/** DELETE /conversations/:conversationId — Reset (delete) a conversation. */
+router.delete(
+  "/conversations/:conversationId",
+  ensureLoggedIn,
+  async function (req, res, next) {
+    try {
+      const { conversationId } = req.params;
+      const userId = res.locals.user.id;
+
+      const convRes = await db.query(
+        `SELECT id, user_id FROM ai_conversations WHERE id = $1::uuid`,
+        [conversationId]
+      );
+      if (convRes.rows.length === 0) {
+        throw new BadRequestError("Conversation not found.");
+      }
+      if (convRes.rows[0].user_id !== userId && res.locals.user.role !== "super_admin") {
+        throw new ForbiddenError("Not your conversation.");
+      }
+
+      await db.query(`DELETE FROM ai_conversations WHERE id = $1::uuid`, [conversationId]);
+      return res.json({ deleted: true });
+    } catch (err) {
+      return next(err);
+    }
+  }
+);
+
+/** POST /chat — Send message, get AI response. */
 router.post(
   "/chat",
   ensureLoggedIn,
@@ -333,13 +382,7 @@ router.post(
       const resolvedId = req.resolvedPropertyId;
       if (!resolvedId) throw new BadRequestError("Invalid property");
 
-      const accessCheck = await db.query(
-        `SELECT 1 FROM property_users WHERE property_id = $1 AND user_id = $2`,
-        [resolvedId, userId]
-      );
-      if (accessCheck.rows.length === 0 && res.locals.user.role !== "super_admin" && res.locals.user.role !== "admin") {
-        throw new ForbiddenError("You do not have access to this property.");
-      }
+      await ensurePropertyAccessForUser(resolvedId, userId, res.locals.user.role);
 
       const quotaCheck = await checkAiTokenQuota(userId);
       if (!quotaCheck.allowed) {
@@ -353,6 +396,7 @@ router.post(
         throw new BadRequestError("AI chat is not configured. Set OPENAI_API_KEY.");
       }
 
+      // --- System switch detection ---
       let systemId = clientSystemContext?.systemId ?? null;
       let systemName = clientSystemContext?.systemName ?? null;
       let systemCtx = clientSystemContext ?? null;
@@ -378,87 +422,81 @@ router.post(
         }
       }
 
+      // --- Get or create conversation ---
       let convId = conversationId;
+      let contextSummary = null;
       if (convId) {
         const verify = await db.query(
-          `SELECT id FROM ai_conversations WHERE id = $1::uuid AND user_id = $2 AND property_id = $3`,
+          `SELECT id, context_summary FROM ai_conversations WHERE id = $1::uuid AND user_id = $2 AND property_id = $3`,
           [convId, userId, resolvedId]
         );
-        if (verify.rows.length === 0) convId = null;
+        if (verify.rows.length === 0) {
+          convId = null;
+        } else {
+          contextSummary = verify.rows[0].context_summary;
+        }
       }
       if (!convId) {
-        convId = await getOrCreateConversation(userId, resolvedId, systemId, systemCtx);
+        const conv = await getOrCreateConversation(userId, resolvedId, systemId, systemCtx);
+        convId = conv.id;
+        contextSummary = conv.contextSummary;
       } else if (systemCtx && Object.keys(systemCtx).length > 0) {
         await db.query(
           `UPDATE ai_conversations SET system_id = $2, system_context = $3, updated_at = NOW() WHERE id = $1::uuid`,
           [convId, systemId, JSON.stringify(systemCtx)]
         );
       }
-      const history = await getConversationMessages(convId, 10);
+
+      // --- Sliding window: get recent messages + check if summary needed ---
+      const { messages: history, needsSummary } = await getWindowedMessages(convId);
       await saveMessage(convId, "user", message);
 
-      const [fullContext, docContext] = await Promise.all([
-        getPropertyContext(resolvedId),
-        documentRagService.getDocumentContext(resolvedId, message, { limit: 12 }).catch(() => ""),
-      ]);
+      // --- Intent detection: only inject relevant context ---
+      const intent = detectIntent(message);
+      const { context: focusedContext, analysisDate } = await buildFocusedContext(
+        resolvedId,
+        systemId ? { type: "system_specific", systems: [systemId] } : intent,
+        contextSummary
+      );
 
-      let contextBlock = `Property context:\n${fullContext}`;
-      if (docContext) contextBlock += `\n\n${docContext}`;
+      // --- Document RAG (scoped to query, not full property) ---
+      const docContext = await documentRagService
+        .getDocumentContext(resolvedId, message, { limit: 6 })
+        .catch(() => "");
 
-      const systemCondition = systemCtx?.systemCondition ?? systemCtx?.system_condition;
-      const lastMaintenance = systemCtx?.lastMaintenanceDate ?? systemCtx?.last_maintenance_date;
-      const upcomingEvents = systemCtx?.upcomingEvents ?? systemCtx?.upcoming_events ?? [];
-      const findings = systemCtx?.inspectionFindingsForThisSystemOnly ?? systemCtx?.inspection_findings ?? [];
+      let contextBlock = `Property context:\n${focusedContext}`;
+      if (docContext) contextBlock += `\n\nRelevant document excerpts:\n${docContext}`;
 
-      const shouldSuggestSchedule =
-        (systemCondition && ["poor", "fair"].includes(String(systemCondition).toLowerCase())) ||
-        (findings && findings.length > 0) ||
-        /\b(schedule|book|set up|arrange|yes|yeah|sure|please)\b/.test((message || "").toLowerCase());
+      // --- Build system prompt ---
+      const systemPrompt = buildSystemPrompt(systemId, systemName, systemCtx, contextSwitched);
 
-      let systemPrompt = `You are a property systems advisor. If a system context is provided, only discuss that system unless the user explicitly changes topic (e.g. "What about HVAC?").
-
-Use ONLY the property context and document excerpts provided. Cite specific details when relevant. Do not invent facts. If information is not in the context, say so.
-
-Be natural and helpful. Be thorough but concise.`;
-      if (systemId && systemName) {
-        systemPrompt += `
-
-CRITICAL: A system context is provided. You MUST discuss ONLY the ${systemName} system unless the user explicitly changes topic (e.g. "What about HVAC?"). Do NOT return the full property inspection summary—focus only on ${systemName}.`;
-        if (systemCondition) systemPrompt += ` Current ${systemName} condition: ${systemCondition}.`;
-        if (lastMaintenance) systemPrompt += ` Last maintenance: ${lastMaintenance}.`;
-        if (upcomingEvents?.length) systemPrompt += ` Upcoming events: ${JSON.stringify(upcomingEvents)}.`;
-        if (findings?.length) systemPrompt += ` Inspection findings for this system: ${JSON.stringify(findings)}.`;
-        systemPrompt += `
-
-Structure your response: Current condition → Risk level → Recommended action → Optional cost estimate range.`;
-      }
-      systemPrompt += `
-
-When relevant (poor/fair condition, overdue maintenance, no contractor assigned, or user asks to schedule), ALWAYS end with: "Would you like to schedule this now?" If the user says yes, okay, or similar, you will receive a follow-up—acknowledge and the system will offer scheduling.`;
-
-      if (contextSwitched) {
-        systemPrompt += `\n\nUser just switched context to ${systemName}. Briefly confirm: "Switching to ${systemName}." then provide system-scoped insights.`;
-      }
-
-      const messages = [
+      // --- Assemble LLM messages ---
+      const llmMessages = [
         { role: "system", content: systemPrompt },
         ...history.map((m) => ({ role: m.role, content: m.content })),
         { role: "user", content: `${contextBlock}\n\nUser: ${message}` },
       ];
 
+      // --- Call OpenAI ---
       const openai = new OpenAI({ apiKey });
       const chatModel = process.env.AI_CHAT_MODEL || "gpt-4o-mini";
       const completion = await openai.chat.completions.create({
         model: chatModel,
-        messages,
-        temperature: 0.3,
+        messages: llmMessages,
+        temperature: CHAT_TEMPERATURE,
+        max_tokens: MAX_RESPONSE_TOKENS,
       });
 
       let assistantMessage = completion.choices[0]?.message?.content || "I couldn't generate a response.";
+
+      // --- Sanitize markdown artifacts ---
+      assistantMessage = sanitizeResponse(assistantMessage);
+
       if (contextSwitched && !assistantMessage.toLowerCase().includes("switching")) {
         assistantMessage = `Switching to ${systemName}.\n\n${assistantMessage}`;
       }
 
+      // --- Record token usage ---
       const usage = completion.usage;
       if (usage?.prompt_tokens != null && usage?.completion_tokens != null) {
         ApiUsage.record({
@@ -470,7 +508,15 @@ When relevant (poor/fair condition, overdue maintenance, no contractor assigned,
         }).catch(() => {});
       }
 
+      // --- Schedule intent detection ---
       const lowerUserMsg = (message || "").toLowerCase();
+      const systemCondition = systemCtx?.systemCondition ?? systemCtx?.system_condition;
+      const findings = systemCtx?.inspectionFindingsForThisSystemOnly ?? systemCtx?.inspection_findings ?? [];
+      const shouldSuggestSchedule =
+        (systemCondition && ["poor", "fair"].includes(String(systemCondition).toLowerCase())) ||
+        (findings && findings.length > 0) ||
+        /\b(schedule|book|set up|arrange|yes|yeah|sure|please)\b/.test(lowerUserMsg);
+
       const hasScheduleIntent =
         /\b(schedule|book|set up|arrange)\b/.test(lowerUserMsg) &&
         (/\b(maintenance|inspection|appointment|service|visit)\b/.test(lowerUserMsg) ||
@@ -514,7 +560,15 @@ When relevant (poor/fair condition, overdue maintenance, no contractor assigned,
         };
       }
 
+      // --- Save assistant message ---
       await saveMessage(convId, "assistant", assistantMessage, uiDirectives);
+
+      // --- Trigger async summary if needed (don't block response) ---
+      if (needsSummary) {
+        generateAndStoreSummary(convId, openai, chatModel).catch((err) =>
+          console.error("[ai/chat] Async summary failed:", err.message)
+        );
+      }
 
       return res.json({
         conversationId: convId,
@@ -523,6 +577,7 @@ When relevant (poor/fair condition, overdue maintenance, no contractor assigned,
         systemId: systemId || undefined,
         systemName: systemName || undefined,
         contextSwitched: contextSwitched || undefined,
+        inspectionAnalysisDate: analysisDate || undefined,
       });
     } catch (err) {
       return next(err);
@@ -530,7 +585,7 @@ When relevant (poor/fair condition, overdue maintenance, no contractor assigned,
   }
 );
 
-/** POST /ingest-documents - Backfill RAG for property documents. Body: { propertyId }. Admin or property access. */
+/** POST /ingest-documents */
 router.post(
   "/ingest-documents",
   ensureLoggedIn,
@@ -546,13 +601,7 @@ router.post(
       const resolvedId = req.resolvedPropertyId;
       if (!resolvedId) throw new BadRequestError("Invalid property");
 
-      const accessCheck = await db.query(
-        `SELECT 1 FROM property_users WHERE property_id = $1 AND user_id = $2`,
-        [resolvedId, userId]
-      );
-      if (accessCheck.rows.length === 0 && res.locals.user.role !== "super_admin" && res.locals.user.role !== "admin") {
-        throw new ForbiddenError("You do not have access to this property.");
-      }
+      await ensurePropertyAccessForUser(resolvedId, userId, res.locals.user.role);
 
       const results = await documentRagService.ingestPropertyDocuments(resolvedId);
       return res.json({ ingested: results });
@@ -562,7 +611,7 @@ router.post(
   }
 );
 
-/** POST /actions/:actionDraftId/select-contractor - Set contractor for draft. Body: { contractorId, contractorSource?, contractorName? }. */
+/** POST /actions/:actionDraftId/select-contractor */
 router.post(
   "/actions/:actionDraftId/select-contractor",
   ensureLoggedIn,
@@ -602,7 +651,7 @@ router.post(
   }
 );
 
-/** POST /actions/:actionDraftId/confirm-schedule - Create maintenance event from draft. Body: { scheduledFor, scheduledTime?, eventType?, notes? }. */
+/** POST /actions/:actionDraftId/confirm-schedule */
 router.post(
   "/actions/:actionDraftId/confirm-schedule",
   ensureLoggedIn,
@@ -629,7 +678,7 @@ router.post(
       const firstTask = tasks[0] || {};
       const systemKey = firstTask.systemType || "general";
       const baseName = firstTask.task || systemKey;
-      const systemName =
+      const systemNameForEvent =
         eventType === "inspection"
           ? baseName.toLowerCase().includes("inspection")
             ? baseName
@@ -654,7 +703,7 @@ router.post(
       const event = await MaintenanceEvent.create({
         property_id: draft.property_id,
         system_key: systemKey,
-        system_name: systemName,
+        system_name: systemNameForEvent,
         contractor_id: contractorId,
         contractor_source: contractorSource,
         contractor_name: contractorName,
@@ -681,6 +730,53 @@ router.post(
         eventId: event.id,
         event,
       });
+    } catch (err) {
+      return next(err);
+    }
+  }
+);
+
+/** GET /property-ai-summary/:propertyId - Get current AI summary state for property. */
+router.get(
+  "/property-ai-summary/:propertyId",
+  ensureLoggedIn,
+  async (req, res, next) => {
+    try {
+      const raw = req.params.propertyId;
+      if (!raw) throw new BadRequestError("propertyId required");
+      req.params = { propertyId: raw };
+      await resolvePropertyId(req, res, () => {});
+      const resolvedId = req.resolvedPropertyId;
+      if (!resolvedId) throw new BadRequestError("Invalid property");
+
+      await ensurePropertyAccessForUser(resolvedId, res.locals.user.id, res.locals.user.role);
+
+      const summary = await getAiSummaryForProperty(resolvedId);
+      return res.json({ aiSummary: summary });
+    } catch (err) {
+      return next(err);
+    }
+  }
+);
+
+/** GET /property-ai-audit/:propertyId - Get reanalysis audit trail for before/after view. */
+router.get(
+  "/property-ai-audit/:propertyId",
+  ensureLoggedIn,
+  async (req, res, next) => {
+    try {
+      const raw = req.params.propertyId;
+      const limit = Math.min(parseInt(req.query.limit, 10) || 20, 50);
+      if (!raw) throw new BadRequestError("propertyId required");
+      req.params = { propertyId: raw };
+      await resolvePropertyId(req, res, () => {});
+      const resolvedId = req.resolvedPropertyId;
+      if (!resolvedId) throw new BadRequestError("Invalid property");
+
+      await ensurePropertyAccessForUser(resolvedId, res.locals.user.id, res.locals.user.role);
+
+      const audit = await getReanalysisAudit(resolvedId, limit);
+      return res.json({ audit });
     } catch (err) {
       return next(err);
     }

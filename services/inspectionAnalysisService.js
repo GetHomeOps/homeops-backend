@@ -9,10 +9,14 @@
 
 const { PDFParse } = require("pdf-parse");
 const OpenAI = require("openai");
+const db = require("../db");
 const { getFile } = require("./s3Service");
 const InspectionAnalysisJob = require("../models/inspectionAnalysisJob");
 const InspectionAnalysisResult = require("../models/inspectionAnalysisResult");
 const { AWS_S3_BUCKET } = require("../config");
+
+const { detectSystemsFromText } = require("./aiChatService");
+const { triggerReanalysisOnInspection } = require("./ai/propertyReanalysisService");
 
 const CANONICAL_SYSTEMS = [
   "roof",
@@ -29,6 +33,7 @@ const CANONICAL_SYSTEMS = [
   "inspections",
 ];
 
+/** Only unambiguous terminology (e.g. "HVAC" = heating+ac). AI decides best-fit for everything else. */
 const SYSTEM_ALIASES = {
   hvac: ["heating", "ac"],
   "windows/doors": "windows",
@@ -48,7 +53,10 @@ function normalizeSystemType(raw) {
       return Array.isArray(canonical) ? canonical[0] : canonical;
     }
   }
-  return CANONICAL_SYSTEMS.find((s) => lower.includes(s) || s.includes(lower)) || null;
+  const canonical = CANONICAL_SYSTEMS.find((s) => lower.includes(s) || s.includes(lower));
+  if (canonical) return canonical;
+  // Pass through custom system types (AI-chosen when no canonical fits)
+  return raw.trim() || null;
 }
 
 async function extractTextFromPdf(buffer) {
@@ -69,16 +77,23 @@ async function extractTextFromBuffer(buffer, mimeType) {
   return "";
 }
 
+const CANONICAL_SYSTEMS_LIST = CANONICAL_SYSTEMS.join(", ");
+
 const ANALYSIS_PROMPT = `You are an expert home inspector analyzing a property inspection report. Extract ALL structured information from the report text. Be thorough and comprehensive.
 
 CRITICAL RULES:
 - Output ONLY valid JSON. No markdown, no extra text.
-- Extract EVERY system that is inspected, mentioned, or has findings. Include roof, gutters, foundation, exterior, windows, heating, ac, waterHeating, electrical, plumbing, safety, and any other systems present.
-- Extract ALL recommendations, maintenance items, and items needing attention. Do not omit items—include everything the report mentions.
-- Map systems to these canonical types only: roof, gutters, foundation, exterior, windows, heating, ac, waterHeating, electrical, plumbing, safety, inspections.
-- For suggestedSystemsToAdd: include EVERY system that was inspected and has findings—each inspected system should appear here so the user can add it to their property.
-- For needsAttention: include ALL defects, concerns, and recommendations from the report. Include systemType when the defect clearly relates to a specific system (e.g. roof, HVAC, plumbing). Be thorough.
-- For maintenanceSuggestions: include ALL maintenance tasks, service recommendations, and follow-up items.
+- Extract EVERY system that is inspected, mentioned, or has findings. Extract ALL recommendations, maintenance items, and items needing attention. Do not omit items—include everything the report mentions.
+
+SYSTEM TYPE: For each finding, choose the best-fitting system. You have two options:
+1. Use a canonical type when it fits: ${CANONICAL_SYSTEMS_LIST}
+2. Use a custom systemType when none of the above fit well (e.g. "pool", "deck", "landscaping", "septic"). Use lowercase camelCase (e.g. swimmingPool) or kebab-case (e.g. swimming-pool).
+
+Analyze each report finding and assign the system that best describes it. Do not force findings into unrelated categories. If siding, stucco, or exterior envelope issues fit "exterior", use it. If a spa or pool fits neither plumbing nor any canonical type, use a custom "pool" or "spa". Use your judgment.
+
+- For suggestedSystemsToAdd: include every system the report inspected with findings. Prefer canonical types when they fit; suggest custom types when the report describes systems not in the canonical list (so the user can add them to their property). Each system with findings should appear here.
+- For needsAttention: assign systemType to each item—choose the best fit from canonical or custom.
+- For maintenanceSuggestions: assign systemType to each task—choose the best fit from canonical or custom.
 - If the report does not mention something, omit it. Use confidence 0.5-0.9 when the report clearly states something; use 0.3-0.5 when inferred.
 - For condition rating use exactly: excellent, good, fair, poor. Use "unknown" only when there is truly insufficient information.
 - Overall condition: ALWAYS try to infer a condition from the report. If not explicitly stated, predict from findings, recommendations, severity of issues, age of systems, and overall report tone. Only use "unknown" when the report has almost no usable information. When you infer (rather than extract) a condition, include confidence; when condition is "unknown", omit confidence.
@@ -101,6 +116,30 @@ Output format (strict JSON):
 
 Report text:
 `;
+
+/** Fetch property context (existing systems) for analysis. */
+async function getPropertyContextForAnalysis(propertyId) {
+  const [propRes, systemsRes] = await Promise.all([
+    db.query(
+      `SELECT property_name, address, city, state, year_built FROM properties WHERE id = $1`,
+      [propertyId]
+    ),
+    db.query(
+      `SELECT system_key FROM property_systems WHERE property_id = $1`,
+      [propertyId]
+    ),
+  ]);
+  const prop = propRes.rows[0] || {};
+  const existingSystems = (systemsRes.rows || []).map((r) => r.system_key).filter(Boolean);
+  const parts = [];
+  if (prop.property_name || prop.address) {
+    parts.push(`Property: ${prop.property_name || "Unnamed"} at ${[prop.address, prop.city, prop.state].filter(Boolean).join(", ")}${prop.year_built ? ` (built ${prop.year_built})` : ""}`);
+  }
+  if (existingSystems.length > 0) {
+    parts.push(`Property ALREADY tracks these systems: ${existingSystems.join(", ")}. Suggest adding any system the report inspected that is NOT in this list.`);
+  }
+  return parts.length > 0 ? parts.join("\n") + "\n\n" : "";
+}
 
 async function runAnalysis(jobId) {
   const job = await InspectionAnalysisJob.get(jobId);
@@ -137,6 +176,10 @@ async function runAnalysis(jobId) {
     return;
   }
 
+  // Rule-based pre-detection: deterministic keyword scan before LLM
+  const keywordDetections = detectSystemsFromText(text);
+  const preDetectedSystems = keywordDetections.map((d) => d.system);
+
   await InspectionAnalysisJob.updateStatus(jobId, { progress: "Analyzing with AI..." });
 
   const apiKey = process.env.OPENAI_API_KEY;
@@ -150,12 +193,18 @@ async function runAnalysis(jobId) {
 
   const openai = new OpenAI({ apiKey });
 
-  // Use up to 100k chars (gpt-4o supports 128k context). Prioritize full report for accuracy.
   const maxChars = 100000;
   const textToUse = text.length > maxChars ? text.slice(0, maxChars) : text;
 
+  // Fetch property context (existing systems) to pass to the AI
+  const propertyContext = await getPropertyContextForAnalysis(job.property_id);
+
   let parsed;
   try {
+    const preDetectionHint = preDetectedSystems.length > 0
+      ? `\n\nA keyword scan found references to: ${preDetectedSystems.join(", ")}. Consider which canonical or custom systems these relate to and include them in systemsDetected and suggestedSystemsToAdd where appropriate.\n\n`
+      : "";
+
     const completion = await openai.chat.completions.create({
       model: "gpt-4o",
       messages: [
@@ -165,7 +214,7 @@ async function runAnalysis(jobId) {
         },
         {
           role: "user",
-          content: ANALYSIS_PROMPT + textToUse,
+          content: (propertyContext ? `PROPERTY CONTEXT:\n${propertyContext}\n` : "") + ANALYSIS_PROMPT + preDetectionHint + textToUse,
         },
       ],
       temperature: 0.2,
@@ -192,7 +241,23 @@ async function runAnalysis(jobId) {
     ? conditionRating
     : "unknown";
 
-  // Deduplicate by normalized systemType (AI may return same system multiple times, e.g. waterHeater twice)
+  // Merge pre-detected systems the LLM may have missed
+  const llmSystemTypes = new Set(
+    (parsed.systemsDetected || []).map((s) => (normalizeSystemType(s.systemType) || s.systemType || "").toLowerCase())
+  );
+  for (const det of keywordDetections) {
+    const normalized = normalizeSystemType(det.system) || det.system;
+    if (!llmSystemTypes.has(normalized.toLowerCase())) {
+      if (!parsed.systemsDetected) parsed.systemsDetected = [];
+      parsed.systemsDetected.push({
+        systemType: normalized,
+        condition: "unknown",
+        confidence: det.confidence * 0.6,
+        evidence: `Detected via keyword scan: ${det.matchedKeywords.join(", ")}`,
+      });
+    }
+  }
+
   const systemsDetectedSeen = new Set();
   const systemsDetected = (parsed.systemsDetected || [])
     .map((s) => {
@@ -214,7 +279,7 @@ async function runAnalysis(jobId) {
     });
 
   const suggestedSystemsToAddSeen = new Set();
-  const suggestedSystemsToAdd = (parsed.suggestedSystemsToAdd || [])
+  let suggestedSystemsToAdd = (parsed.suggestedSystemsToAdd || [])
     .map((s) => ({
       systemType: normalizeSystemType(s.systemType) || s.systemType,
       reason: s.reason || "",
@@ -226,6 +291,19 @@ async function runAnalysis(jobId) {
       suggestedSystemsToAddSeen.add(key);
       return true;
     });
+
+  // Merge: add any system from systemsDetected (incl. pre-detected) that the LLM missed in suggestedSystemsToAdd
+  for (const det of systemsDetected) {
+    const key = (det.systemType || "").toString().toLowerCase();
+    if (key && !suggestedSystemsToAddSeen.has(key)) {
+      suggestedSystemsToAddSeen.add(key);
+      suggestedSystemsToAdd.push({
+        systemType: det.systemType,
+        reason: det.evidence || `Report inspected ${det.systemType}`,
+        confidence: det.confidence ?? 0.5,
+      });
+    }
+  }
 
   const maintenanceSuggestions = (parsed.maintenanceSuggestions || []).map((s) => ({
     systemType: normalizeSystemType(s.systemType) || s.systemType,
@@ -246,7 +324,7 @@ async function runAnalysis(jobId) {
   }));
 
   try {
-    await InspectionAnalysisResult.create({
+    const result = await InspectionAnalysisResult.create({
       job_id: jobId,
       property_id: job.property_id,
       condition_rating: validCondition,
@@ -261,6 +339,11 @@ async function runAnalysis(jobId) {
     });
 
     await InspectionAnalysisJob.updateStatus(jobId, { status: "completed", progress: "Done" });
+
+    // Trigger AI reanalysis to merge inspection with existing property AI state (async)
+    triggerReanalysisOnInspection(job.property_id, result).catch((err) =>
+      console.error("[propertyReanalysis] Inspection trigger failed:", err.message)
+    );
   } catch (err) {
     console.error("[inspectionAnalysis] Save result error:", err);
     await InspectionAnalysisJob.updateStatus(jobId, {

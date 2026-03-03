@@ -7,6 +7,7 @@ const { BadRequestError } = require("../expressError");
 const System = require("../models/system");
 const InspectionAnalysisResult = require("../models/inspectionAnalysisResult");
 const { enrichSystemsWithAiCondition } = require("../helpers/aiConditionFromAnalysis");
+const { getAiSummaryForProperty } = require("../services/ai/propertyReanalysisService");
 const systemNewSchema = require("../schemas/systemNew.json");
 const systemUpdateSchema = require("../schemas/systemUpdate.json");
 
@@ -27,16 +28,21 @@ router.post("/:propertyId", ensureLoggedIn, ensurePropertyAccess({ param: "prope
   }
 });
 
-/** GET /:propertyId - List systems for property. Enriches each system with aiCondition from inspection analysis. */
+/** GET /:propertyId - List systems for property. Enriches each system with aiCondition from reanalysis or inspection. */
 router.get("/:propertyId", ensureLoggedIn, ensurePropertyAccess({ param: "propertyId" }), async function (req, res, next) {
   try {
     const propertyId = req.params.propertyId;
-    const [systems, analysis] = await Promise.all([
+    const [systems, analysis, aiSummary] = await Promise.all([
       System.get(propertyId),
       InspectionAnalysisResult.getByPropertyId(propertyId),
+      getAiSummaryForProperty(propertyId),
     ]);
-    const enriched = enrichSystemsWithAiCondition(systems, analysis);
-    return res.json({ systems: enriched });
+    const enriched = enrichSystemsWithAiCondition(systems, analysis, aiSummary);
+    const response = { systems: enriched };
+    if (aiSummary?.lastReanalysisAt) {
+      response.aiSummaryUpdatedAt = aiSummary.lastReanalysisAt;
+    }
+    return res.json(response);
   } catch (err) {
     return next(err);
   }
