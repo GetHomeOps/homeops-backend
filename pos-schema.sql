@@ -362,6 +362,8 @@ CREATE TABLE subscription_products (
     code VARCHAR(100) UNIQUE,
     sort_order INTEGER DEFAULT 0,
     trial_days INTEGER,
+    popular BOOLEAN DEFAULT false,
+    features JSONB DEFAULT '[]',
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -392,6 +394,8 @@ CREATE TABLE plan_prices (
     subscription_product_id INTEGER NOT NULL REFERENCES subscription_products(id) ON DELETE CASCADE,
     stripe_price_id VARCHAR(255) NOT NULL UNIQUE,
     billing_interval VARCHAR(20) NOT NULL CHECK (billing_interval IN ('month', 'year')),
+    unit_amount INTEGER,
+    currency VARCHAR(10) DEFAULT 'usd',
     created_at TIMESTAMPTZ DEFAULT NOW(),
     UNIQUE(subscription_product_id, billing_interval)
 );
@@ -407,6 +411,7 @@ CREATE TABLE plan_limits (
     max_viewers INTEGER NOT NULL DEFAULT 2,
     max_team_members INTEGER NOT NULL DEFAULT 5,
     ai_token_monthly_quota INTEGER DEFAULT 50000,
+    max_documents_per_system INTEGER DEFAULT 5,
     other_limits JSONB DEFAULT '{}',
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -806,6 +811,11 @@ CREATE TABLE comm_rules (
 
 CREATE INDEX idx_comm_rules_active ON comm_rules(is_active) WHERE is_active = true;
 CREATE INDEX idx_comm_rules_comm ON comm_rules(communication_id);
+
+-- Seed default comm template per account (idempotent)
+INSERT INTO comm_templates (account_id, name, is_default)
+SELECT a.id, 'Default', true FROM accounts a
+WHERE NOT EXISTS (SELECT 1 FROM comm_templates ct WHERE ct.account_id = a.id AND ct.is_default = true);
 
 -- ============================================================
 -- Inspection Analysis (async report analysis)

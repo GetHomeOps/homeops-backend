@@ -67,6 +67,8 @@ DROP TABLE IF EXISTS users CASCADE;
 DROP TABLE IF EXISTS refresh_tokens CASCADE;
 DROP TABLE IF EXISTS resources CASCADE;
 DROP TABLE IF EXISTS user_api_usage CASCADE;
+DROP TABLE IF EXISTS property_ai_summary_state CASCADE;
+DROP TABLE IF EXISTS property_ai_reanalysis_audit CASCADE;
 
 -- Drop old views
 DROP VIEW IF EXISTS daily_platform_metrics CASCADE;
@@ -75,6 +77,9 @@ DROP VIEW IF EXISTS daily_platform_metrics CASCADE;
 DROP VIEW IF EXISTS daily_metrics_snapshot CASCADE;
 DROP VIEW IF EXISTS account_analytics_snapshot CASCADE;
 DROP VIEW IF EXISTS notifications_view CASCADE;
+DROP VIEW IF EXISTS property_ai_summary_state CASCADE;
+DROP VIEW IF EXISTS property_ai_reanalysis_audit CASCADE;
+
 
 
 -- Drop existing types
@@ -89,6 +94,13 @@ DROP TYPE IF EXISTS db_role CASCADE;
 DROP TYPE IF EXISTS subscription_type CASCADE;
 DROP TYPE IF EXISTS subscription_status CASCADE;
 DROP TYPE IF EXISTS delivery_channel CASCADE;
+DROP TYPE IF EXISTS trigger_source CASCADE;
+DROP TYPE IF EXISTS maintenance_priority CASCADE;
+DROP TYPE IF EXISTS maintenance_status CASCADE;
+DROP TYPE IF EXISTS maintenance_type CASCADE;
+DROP TYPE IF EXISTS maintenance_category CASCADE;
+DROP TYPE IF EXISTS maintenance_subcategory CASCADE;
+DROP TYPE IF EXISTS record_status CASCADE;
 
 
 -- Import the new schema

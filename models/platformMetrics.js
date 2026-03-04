@@ -150,7 +150,7 @@ class PlatformMetrics {
          new_accounts = EXCLUDED.new_accounts,
          new_properties = EXCLUDED.new_properties`,
       [today, usersRes.rows[0].count, accountsRes.rows[0].count, propsRes.rows[0].count,
-       newUsersRes.rows[0].count, newAccountsRes.rows[0].count, newPropsRes.rows[0].count]
+        newUsersRes.rows[0].count, newAccountsRes.rows[0].count, newPropsRes.rows[0].count]
     );
   }
 

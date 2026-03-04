@@ -4,8 +4,11 @@ const express = require("express");
 const router = express.Router();
 const PropertyDocument = require("../models/propertyDocuments");
 const { ensureLoggedIn, ensurePropertyAccess } = require("../middleware/auth");
+const { ForbiddenError } = require("../expressError");
 const documentRagService = require("../services/documentRagService");
 const { triggerReanalysisOnDocument } = require("../services/ai/propertyReanalysisService");
+const { canUploadDocumentToSystem } = require("../services/tierService");
+const db = require("../db");
 
 /** Set req.params.propertyId from document id so ensurePropertyAccess can run. */
 async function loadPropertyIdFromDocument(req, res, next) {
@@ -22,6 +25,22 @@ async function loadPropertyIdFromDocument(req, res, next) {
 router.post("/", ensureLoggedIn, ensurePropertyAccess({ fromBody: "property_id", param: "propertyId" }), async (req, res, next) => {
   try {
     const { property_id, document_name, document_date, document_key, document_type, system_key } = req.body;
+
+    const userRole = res.locals.user?.role;
+    if (system_key && userRole !== "super_admin" && userRole !== "admin") {
+      const accRes = await db.query(
+        `SELECT account_id FROM properties WHERE id = $1`,
+        [property_id]
+      );
+      const accountId = accRes.rows[0]?.account_id;
+      if (accountId) {
+        const tierCheck = await canUploadDocumentToSystem(accountId, property_id, system_key, userRole);
+        if (!tierCheck.allowed) {
+          throw new ForbiddenError(`Document limit reached for this system (${tierCheck.current}/${tierCheck.max}). Upgrade your plan.`);
+        }
+      }
+    }
+
     const document = await PropertyDocument.create({
       property_id,
       document_name,

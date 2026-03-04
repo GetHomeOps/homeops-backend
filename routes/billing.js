@@ -170,7 +170,9 @@ router.get("/status", ensureLoggedIn, async function (req, res, next) {
       plan = { code: subscription.code, name: subscription.name, trialDays: subscription.trialDays };
       const limRes = await db.query(
         `SELECT max_properties AS "maxProperties", max_contacts AS "maxContacts",
-                ai_token_monthly_quota AS "aiTokenMonthlyQuota"
+                max_viewers AS "maxViewers", max_team_members AS "maxTeamMembers",
+                ai_token_monthly_quota AS "aiTokenMonthlyQuota",
+                max_documents_per_system AS "maxDocumentsPerSystem"
          FROM plan_limits pl
          JOIN subscription_products sp ON sp.id = pl.subscription_product_id
          WHERE sp.code = $1`,
@@ -185,7 +187,9 @@ router.get("/status", ensureLoggedIn, async function (req, res, next) {
         plan = { code: freePlan.rows[0].code, name: freePlan.rows[0].name };
         const limRes = await db.query(
           `SELECT max_properties AS "maxProperties", max_contacts AS "maxContacts",
-                  ai_token_monthly_quota AS "aiTokenMonthlyQuota"
+                  max_viewers AS "maxViewers", max_team_members AS "maxTeamMembers",
+                  ai_token_monthly_quota AS "aiTokenMonthlyQuota",
+                  max_documents_per_system AS "maxDocumentsPerSystem"
            FROM plan_limits pl
            JOIN subscription_products sp ON sp.id = pl.subscription_product_id
            WHERE sp.code = 'homeowner_free'`
@@ -274,6 +278,20 @@ router.patch("/plans/:id/limits", ensureLoggedIn, ensureSuperAdmin, async functi
   }
 });
 
+/** PATCH /billing/plans/:id/popular - Toggle "most popular" (Super Admin only). Clears siblings of same role. */
+router.patch("/plans/:id/popular", ensureLoggedIn, ensureSuperAdmin, async function (req, res, next) {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (isNaN(id)) throw new BadRequestError("Invalid plan ID");
+    const { popular } = req.body;
+    if (typeof popular !== "boolean") throw new BadRequestError("popular must be a boolean");
+    const plan = await planModel.setPopular(id, popular);
+    return res.json({ plan });
+  } catch (err) {
+    return next(err);
+  }
+});
+
 /** PATCH /billing/plans/:id/prices - Update plan price (Super Admin only) */
 router.patch("/plans/:id/prices", ensureLoggedIn, ensureSuperAdmin, async function (req, res, next) {
   try {
@@ -282,6 +300,30 @@ router.patch("/plans/:id/prices", ensureLoggedIn, ensureSuperAdmin, async functi
     const { billingInterval, stripePriceId } = req.body;
     if (!billingInterval) throw new BadRequestError("billingInterval is required");
     const plan = await planModel.updatePlanPrice(id, billingInterval, stripePriceId || null);
+    return res.json({ plan });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+/** GET /billing/stripe/prices - List active Stripe prices for admin dropdown */
+router.get("/stripe/prices", ensureLoggedIn, ensureSuperAdmin, async function (req, res, next) {
+  try {
+    const prices = await stripeService.listActivePrices();
+    return res.json({ prices });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+/** PATCH /billing/plans/:id/features - Update plan features (Super Admin only) */
+router.patch("/plans/:id/features", ensureLoggedIn, ensureSuperAdmin, async function (req, res, next) {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (isNaN(id)) throw new BadRequestError("Invalid plan ID");
+    const { features } = req.body;
+    if (!features) throw new BadRequestError("features array is required");
+    const plan = await planModel.updatePlanFeatures(id, features);
     return res.json({ plan });
   } catch (err) {
     return next(err);

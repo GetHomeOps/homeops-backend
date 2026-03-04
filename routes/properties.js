@@ -9,7 +9,7 @@ const propertyNewSchema = require("../schemas/propertyNew.json");
 const propertyUpdateSchema = require("../schemas/propertyUpdate.json");
 const { generatePassportId } = require("../helpers/properties");
 const { addPresignedUrlToItem, addPresignedUrlsToItems } = require("../helpers/presignedUrls");
-const { canCreateProperty } = require("../services/tierService");
+const { canCreateProperty, checkAiTokenQuota } = require("../services/tierService");
 const { onPropertyCreated } = require("../services/resourceAutoSend");
 const InspectionAnalysisJob = require("../models/inspectionAnalysisJob");
 const InspectionAnalysisResult = require("../models/inspectionAnalysisResult");
@@ -190,7 +190,17 @@ router.post(
     try {
       const propertyId = req.params.propertyId;
       const userId = res.locals.user.id;
+      const userRole = res.locals.user?.role;
       const { s3Key, fileName, mimeType } = req.body || {};
+
+      if (userRole !== "super_admin" && userRole !== "admin") {
+        const quotaCheck = await checkAiTokenQuota(userId, userRole);
+        if (!quotaCheck.allowed) {
+          throw new ForbiddenError(
+            `AI token quota exceeded (${quotaCheck.used}/${quotaCheck.quota} this month). Upgrade your plan for more.`
+          );
+        }
+      }
 
       if (!s3Key || typeof s3Key !== "string") {
         throw new BadRequestError("s3Key is required");

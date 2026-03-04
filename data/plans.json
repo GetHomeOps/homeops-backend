@@ -1,5 +1,5 @@
 {
-  "version": "1.0",
+  "version": "2.0",
   "plans": [
     {
       "code": "homeowner_free",
@@ -17,13 +17,27 @@
         "maxViewers": 1,
         "maxTeamMembers": 2,
         "aiTokenMonthlyQuota": 0,
+        "maxDocumentsPerSystem": 1,
         "otherLimits": {
           "aiInsightsPerMonth": 2,
           "storageGb": 1,
           "contractorScheduling": false,
           "automation": false
         }
-      }
+      },
+      "features": [
+        { "id": "properties", "label": "1 property", "included": true },
+        { "id": "storage", "label": "1 document per system", "included": true },
+        { "id": "users", "label": "1 seat (+1 view only)", "included": true },
+        { "id": "contacts", "label": "Up to 25 contacts", "included": true },
+        { "id": "maintenance_tracking", "label": "Manual maintenance tracking", "included": true },
+        { "id": "ai_assistant", "label": "AI assistant", "included": false },
+        { "id": "data_ingestion", "label": "Automated data ingestion", "included": false },
+        { "id": "export", "label": "PDF & DHP export only", "included": true },
+        { "id": "support", "label": "FAQs, Bot, Videos, email (DIY)", "included": true },
+        { "id": "inspection_analysis", "label": "AI inspection analysis", "included": false },
+        { "id": "contractor_scheduling", "label": "Contractor scheduling", "included": false }
+      ]
     },
     {
       "code": "homeowner_maintain",
@@ -41,8 +55,22 @@
         "maxViewers": 5,
         "maxTeamMembers": 10,
         "aiTokenMonthlyQuota": 50000,
+        "maxDocumentsPerSystem": 3,
         "otherLimits": { "storageGb": 5 }
-      }
+      },
+      "features": [
+        { "id": "properties", "label": "1 property", "included": true },
+        { "id": "storage", "label": "3 documents per system", "included": true },
+        { "id": "users", "label": "3 seats (unlimited view)", "included": true },
+        { "id": "contacts", "label": "Up to 100 contacts", "included": true },
+        { "id": "maintenance_tracking", "label": "Assisted maintenance tracking", "included": true },
+        { "id": "ai_assistant", "label": "AI assistant (limited)", "included": true },
+        { "id": "data_ingestion", "label": "100 tokens/month", "included": true },
+        { "id": "export", "label": "CSV, Excel, PDF export", "included": true },
+        { "id": "support", "label": "24/7 support", "included": true },
+        { "id": "inspection_analysis", "label": "AI inspection analysis", "included": true },
+        { "id": "contractor_scheduling", "label": "Contractor scheduling", "included": true }
+      ]
     },
     {
       "code": "homeowner_win",
@@ -60,8 +88,23 @@
         "maxViewers": 25,
         "maxTeamMembers": 25,
         "aiTokenMonthlyQuota": 999999,
+        "maxDocumentsPerSystem": 999,
         "otherLimits": { "storageGb": 25 }
-      }
+      },
+      "features": [
+        { "id": "properties", "label": "Up to 3 properties", "included": true },
+        { "id": "storage", "label": "Unlimited documents per system", "included": true },
+        { "id": "users", "label": "Unlimited users", "included": true },
+        { "id": "contacts", "label": "Up to 500 contacts", "included": true },
+        { "id": "maintenance_tracking", "label": "Automated maintenance tracking", "included": true },
+        { "id": "ai_assistant", "label": "Full AI assistant", "included": true },
+        { "id": "data_ingestion", "label": "300 tokens/month", "included": true },
+        { "id": "export", "label": "Custom reports", "included": true },
+        { "id": "support", "label": "Priority support", "included": true },
+        { "id": "inspection_analysis", "label": "AI inspection analysis", "included": true },
+        { "id": "contractor_scheduling", "label": "Priority contractor matching", "included": true },
+        { "id": "predictive", "label": "Predictive maintenance scoring", "included": true }
+      ]
     },
     {
       "code": "agent_basic",
@@ -79,8 +122,21 @@
         "maxViewers": 5,
         "maxTeamMembers": 10,
         "aiTokenMonthlyQuota": 25000,
+        "maxDocumentsPerSystem": 3,
         "otherLimits": { "storageGb": 10 }
-      }
+      },
+      "features": [
+        { "id": "properties", "label": "Up to 5 properties", "included": true },
+        { "id": "users", "label": "1 user + TC", "included": true },
+        { "id": "branding", "label": "Opsy branding", "included": true },
+        { "id": "onboarding", "label": "30 min consult", "included": true },
+        { "id": "ai_assistant", "label": "AI assistant", "included": false },
+        { "id": "data_ingestion", "label": "Manual data ingestion", "included": true },
+        { "id": "export", "label": "PDF, DHP export only", "included": true },
+        { "id": "support", "label": "FAQs, Bot, Videos, email (DIY)", "included": true },
+        { "id": "integrations", "label": "CRM integrations", "included": false },
+        { "id": "leads", "label": "Lead generation", "included": false }
+      ]
     },
     {
       "code": "agent_pro",
@@ -98,8 +154,21 @@
         "maxViewers": 25,
         "maxTeamMembers": 25,
         "aiTokenMonthlyQuota": 200000,
+        "maxDocumentsPerSystem": 10,
         "otherLimits": { "storageGb": 50 }
-      }
+      },
+      "features": [
+        { "id": "properties", "label": "Up to 25 properties", "included": true },
+        { "id": "users", "label": "2 users + TC", "included": true },
+        { "id": "branding", "label": "Co-branded", "included": true },
+        { "id": "onboarding", "label": "Dedicated specialist", "included": true },
+        { "id": "ai_assistant", "label": "AI assistant", "included": true },
+        { "id": "data_ingestion", "label": "Assisted data ingestion", "included": true },
+        { "id": "export", "label": "CSV, Excel, PDF export", "included": true },
+        { "id": "support", "label": "24/7 support", "included": true },
+        { "id": "integrations", "label": "SELECT CRM integration", "included": true },
+        { "id": "leads", "label": "Zip code specific leads", "included": true }
+      ]
     },
     {
       "code": "agent_premium",
@@ -117,8 +186,55 @@
         "maxViewers": 100,
         "maxTeamMembers": 100,
         "aiTokenMonthlyQuota": 999999,
+        "maxDocumentsPerSystem": 50,
         "otherLimits": { "storageGb": 200 }
-      }
+      },
+      "features": [
+        { "id": "properties", "label": "Up to 999 properties", "included": true },
+        { "id": "users", "label": "Up to 5 total users", "included": true },
+        { "id": "branding", "label": "Fully white-labeled", "included": true },
+        { "id": "onboarding", "label": "Dedicated account manager", "included": true },
+        { "id": "ai_assistant", "label": "Full AI assistant", "included": true },
+        { "id": "data_ingestion", "label": "Automated data ingestion", "included": true },
+        { "id": "export", "label": "Custom reports", "included": true },
+        { "id": "support", "label": "Priority support", "included": true },
+        { "id": "integrations", "label": "Full API access", "included": true },
+        { "id": "leads", "label": "City-wide lead expansion", "included": true }
+      ]
+    },
+    {
+      "code": "agent_enterprise",
+      "name": "Enterprise",
+      "description": "Custom solutions for large teams and brokerages. Unlimited properties, dedicated infrastructure, custom integrations, SLA-backed support.",
+      "targetRole": "agent",
+      "price": 499,
+      "priceYear": null,
+      "sortOrder": 7,
+      "trialDays": 30,
+      "popular": false,
+      "limits": {
+        "maxProperties": 999999,
+        "maxContacts": 999999,
+        "maxViewers": 999,
+        "maxTeamMembers": 999,
+        "aiTokenMonthlyQuota": 999999,
+        "maxDocumentsPerSystem": 999,
+        "otherLimits": { "storageGb": 999 }
+      },
+      "features": [
+        { "id": "properties", "label": "Unlimited properties", "included": true },
+        { "id": "users", "label": "Unlimited users", "included": true },
+        { "id": "branding", "label": "Fully white-labeled", "included": true },
+        { "id": "onboarding", "label": "Custom onboarding program", "included": true },
+        { "id": "ai_assistant", "label": "Full AI assistant", "included": true },
+        { "id": "data_ingestion", "label": "Automated + custom pipelines", "included": true },
+        { "id": "export", "label": "Custom reports + API", "included": true },
+        { "id": "support", "label": "SLA-backed priority support", "included": true },
+        { "id": "integrations", "label": "Custom integrations + API", "included": true },
+        { "id": "leads", "label": "National lead network", "included": true },
+        { "id": "dedicated_infra", "label": "Dedicated infrastructure", "included": true },
+        { "id": "sla", "label": "Custom SLA", "included": true }
+      ]
     }
   ]
 }

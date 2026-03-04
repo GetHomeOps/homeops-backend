@@ -18,16 +18,17 @@ router.post("/", ensureLoggedIn, async function (req, res, next) {
     }
 
     const inviterUserId = res.locals.user.id;
+    const userRole = res.locals.user?.role;
 
     if (intendedRole === 'viewer' && propertyId) {
-      const viewerCheck = await canInviteViewer(accountId, propertyId);
+      const viewerCheck = await canInviteViewer(accountId, propertyId, userRole);
       if (!viewerCheck.allowed) {
         throw new ForbiddenError(`Viewer limit reached (${viewerCheck.current}/${viewerCheck.max}). Upgrade your plan.`);
       }
     }
 
     if (propertyId) {
-      const teamCheck = await canAddTeamMember(accountId, propertyId);
+      const teamCheck = await canAddTeamMember(accountId, propertyId, userRole);
       if (!teamCheck.allowed) {
         throw new ForbiddenError(`Team member limit reached (${teamCheck.current}/${teamCheck.max}). Upgrade your plan.`);
       }

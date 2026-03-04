@@ -8,14 +8,14 @@
  */
 
 const db = require("../db");
-const { NotFoundError } = require("../expressError");
+const { NotFoundError, BadRequestError } = require("../expressError");
 
-/** Get all active plans for an audience (homeowner | agent), with limits and prices. */
+/** Get all active plans for an audience (homeowner | agent), with limits, prices, and features. */
 async function getPlansForAudience(audienceType) {
   const result = await db.query(
     `SELECT sp.id, sp.code, sp.name, sp.description, sp.target_role AS "targetRole",
             sp.price, sp.billing_interval AS "billingInterval", sp.sort_order AS "sortOrder",
-            sp.trial_days AS "trialDays", sp.is_active AS "isActive"
+            sp.trial_days AS "trialDays", sp.is_active AS "isActive", sp.popular, sp.features
      FROM subscription_products sp
      WHERE sp.target_role = $1 AND (sp.is_active IS NULL OR sp.is_active = true)
      ORDER BY sp.sort_order ASC, sp.price ASC`,
@@ -24,10 +24,14 @@ async function getPlansForAudience(audienceType) {
 
   const plans = result.rows;
   for (const p of plans) {
+    p.features = p.features || [];
+
     const limits = await db.query(
       `SELECT max_properties AS "maxProperties", max_contacts AS "maxContacts",
               max_viewers AS "maxViewers", max_team_members AS "maxTeamMembers",
-              ai_token_monthly_quota AS "aiTokenMonthlyQuota", other_limits AS "otherLimits"
+              ai_token_monthly_quota AS "aiTokenMonthlyQuota",
+              max_documents_per_system AS "maxDocumentsPerSystem",
+              other_limits AS "otherLimits"
        FROM plan_limits WHERE subscription_product_id = $1`,
       [p.id]
     );
@@ -37,16 +41,26 @@ async function getPlansForAudience(audienceType) {
       maxViewers: 2,
       maxTeamMembers: 5,
       aiTokenMonthlyQuota: 50000,
+      maxDocumentsPerSystem: 5,
       otherLimits: {},
     };
 
     const prices = await db.query(
-      `SELECT billing_interval AS "billingInterval", stripe_price_id AS "stripePriceId"
+      `SELECT billing_interval AS "billingInterval", stripe_price_id AS "stripePriceId",
+              unit_amount AS "unitAmount", currency
        FROM plan_prices WHERE subscription_product_id = $1`,
       [p.id]
     );
     p.prices = prices.rows.reduce((acc, r) => {
       acc[r.billingInterval] = r.stripePriceId;
+      return acc;
+    }, {});
+    p.stripePrices = prices.rows.reduce((acc, r) => {
+      acc[r.billingInterval] = {
+        stripePriceId: r.stripePriceId,
+        unitAmount: r.unitAmount,
+        currency: r.currency || "usd",
+      };
       return acc;
     }, {});
   }
@@ -57,12 +71,13 @@ async function getPlansForAudience(audienceType) {
 async function getByCode(code) {
   const result = await db.query(
     `SELECT sp.id, sp.code, sp.name, sp.description, sp.target_role AS "targetRole",
-            sp.price, sp.trial_days AS "trialDays", sp.is_active AS "isActive"
+            sp.price, sp.trial_days AS "trialDays", sp.is_active AS "isActive", sp.popular, sp.features
      FROM subscription_products sp WHERE sp.code = $1`,
     [code]
   );
   const plan = result.rows[0];
   if (!plan) throw new NotFoundError(`Plan not found: ${code}`);
+  plan.features = plan.features || [];
   return plan;
 }
 
@@ -71,22 +86,28 @@ async function getAll() {
   const result = await db.query(
     `SELECT sp.id, sp.code, sp.name, sp.description, sp.target_role AS "targetRole",
             sp.price, sp.sort_order AS "sortOrder", sp.trial_days AS "trialDays",
-            sp.is_active AS "isActive", sp.created_at AS "createdAt", sp.updated_at AS "updatedAt"
+            sp.is_active AS "isActive", sp.popular, sp.features,
+            sp.created_at AS "createdAt", sp.updated_at AS "updatedAt"
      FROM subscription_products sp ORDER BY sp.sort_order ASC, sp.target_role, sp.price ASC`
   );
   const plans = result.rows;
   for (const p of plans) {
+    p.features = p.features || [];
+
     const limits = await db.query(
       `SELECT id, max_properties AS "maxProperties", max_contacts AS "maxContacts",
               max_viewers AS "maxViewers", max_team_members AS "maxTeamMembers",
-              ai_token_monthly_quota AS "aiTokenMonthlyQuota", other_limits AS "otherLimits"
+              ai_token_monthly_quota AS "aiTokenMonthlyQuota",
+              max_documents_per_system AS "maxDocumentsPerSystem",
+              other_limits AS "otherLimits"
        FROM plan_limits WHERE subscription_product_id = $1`,
       [p.id]
     );
     p.limits = limits.rows[0];
 
     const prices = await db.query(
-      `SELECT id, billing_interval AS "billingInterval", stripe_price_id AS "stripePriceId"
+      `SELECT id, billing_interval AS "billingInterval", stripe_price_id AS "stripePriceId",
+              unit_amount AS "unitAmount", currency
        FROM plan_prices WHERE subscription_product_id = $1 ORDER BY billing_interval`,
       [p.id]
     );
@@ -116,21 +137,40 @@ async function updatePlan(productId, data) {
   return getPlanById(productId);
 }
 
+/** Set a plan as the "most popular" for its target_role. Clears popular from sibling plans. */
+async function setPopular(productId, isPopular) {
+  if (isPopular) {
+    const plan = await db.query(`SELECT target_role FROM subscription_products WHERE id = $1`, [productId]);
+    if (!plan.rows[0]) throw new NotFoundError(`Plan not found: ${productId}`);
+    await db.query(
+      `UPDATE subscription_products SET popular = false, updated_at = NOW()
+       WHERE target_role = $1 AND popular = true`,
+      [plan.rows[0].target_role]
+    );
+  }
+  await db.query(
+    `UPDATE subscription_products SET popular = $1, updated_at = NOW() WHERE id = $2`,
+    [isPopular, productId]
+  );
+  return getPlanById(productId);
+}
+
 /** Update plan limits (Super Admin). */
 async function updatePlanLimits(productId, limits) {
   const {
     maxProperties, maxContacts, maxViewers, maxTeamMembers,
-    aiTokenMonthlyQuota, otherLimits,
+    aiTokenMonthlyQuota, maxDocumentsPerSystem, otherLimits,
   } = limits;
   await db.query(
-    `INSERT INTO plan_limits (subscription_product_id, max_properties, max_contacts, max_viewers, max_team_members, ai_token_monthly_quota, other_limits, updated_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+    `INSERT INTO plan_limits (subscription_product_id, max_properties, max_contacts, max_viewers, max_team_members, ai_token_monthly_quota, max_documents_per_system, other_limits, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
      ON CONFLICT (subscription_product_id) DO UPDATE SET
        max_properties = EXCLUDED.max_properties,
        max_contacts = EXCLUDED.max_contacts,
        max_viewers = EXCLUDED.max_viewers,
        max_team_members = EXCLUDED.max_team_members,
        ai_token_monthly_quota = EXCLUDED.ai_token_monthly_quota,
+       max_documents_per_system = EXCLUDED.max_documents_per_system,
        other_limits = EXCLUDED.other_limits,
        updated_at = NOW()`,
     [
@@ -140,13 +180,37 @@ async function updatePlanLimits(productId, limits) {
       maxViewers ?? 2,
       maxTeamMembers ?? 5,
       aiTokenMonthlyQuota ?? 50000,
+      maxDocumentsPerSystem ?? 5,
       otherLimits ? JSON.stringify(otherLimits) : "{}",
     ]
   );
   return getPlanById(productId);
 }
 
-/** Update plan price (Super Admin). */
+/** Update plan features (Super Admin). Validates array shape. */
+async function updatePlanFeatures(productId, features) {
+  if (!Array.isArray(features)) {
+    throw new BadRequestError("features must be an array");
+  }
+  for (const f of features) {
+    if (typeof f.id !== "string" || !f.id) {
+      throw new BadRequestError("Each feature must have a string id");
+    }
+    if (typeof f.label !== "string" || !f.label) {
+      throw new BadRequestError("Each feature must have a string label");
+    }
+    if (typeof f.included !== "boolean") {
+      throw new BadRequestError("Each feature must have a boolean included field");
+    }
+  }
+  await db.query(
+    `UPDATE subscription_products SET features = $1, updated_at = NOW() WHERE id = $2`,
+    [JSON.stringify(features), productId]
+  );
+  return getPlanById(productId);
+}
+
+/** Update plan price (Super Admin). Resolves Stripe price amount when possible. */
 async function updatePlanPrice(productId, billingInterval, stripePriceId) {
   if (!stripePriceId) {
     await db.query(
@@ -154,11 +218,25 @@ async function updatePlanPrice(productId, billingInterval, stripePriceId) {
       [productId, billingInterval]
     );
   } else {
+    let unitAmount = null;
+    let currency = "usd";
+    try {
+      const stripeService = require("../services/stripeService");
+      if (stripeService.stripe) {
+        const price = await stripeService.stripe.prices.retrieve(stripePriceId);
+        unitAmount = price.unit_amount;
+        currency = price.currency || "usd";
+      }
+    } catch (_) { /* Stripe unavailable; store ID only */ }
+
     await db.query(
-      `INSERT INTO plan_prices (subscription_product_id, stripe_price_id, billing_interval)
-       VALUES ($1, $2, $3)
-       ON CONFLICT (subscription_product_id, billing_interval) DO UPDATE SET stripe_price_id = EXCLUDED.stripe_price_id`,
-      [productId, stripePriceId, billingInterval]
+      `INSERT INTO plan_prices (subscription_product_id, stripe_price_id, billing_interval, unit_amount, currency)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (subscription_product_id, billing_interval) DO UPDATE SET
+         stripe_price_id = EXCLUDED.stripe_price_id,
+         unit_amount = EXCLUDED.unit_amount,
+         currency = EXCLUDED.currency`,
+      [productId, stripePriceId, billingInterval, unitAmount, currency]
     );
   }
   return getPlanById(productId);
@@ -168,19 +246,27 @@ async function getPlanById(id) {
   const result = await db.query(
     `SELECT sp.id, sp.code, sp.name, sp.description, sp.target_role AS "targetRole",
             sp.price, sp.sort_order AS "sortOrder", sp.trial_days AS "trialDays",
-            sp.is_active AS "isActive"
+            sp.is_active AS "isActive", sp.popular, sp.features
      FROM subscription_products sp WHERE sp.id = $1`,
     [id]
   );
   const plan = result.rows[0];
   if (!plan) throw new NotFoundError(`Plan not found: ${id}`);
+  plan.features = plan.features || [];
   const limits = await db.query(
-    `SELECT * FROM plan_limits WHERE subscription_product_id = $1`,
+    `SELECT id, max_properties AS "maxProperties", max_contacts AS "maxContacts",
+            max_viewers AS "maxViewers", max_team_members AS "maxTeamMembers",
+            ai_token_monthly_quota AS "aiTokenMonthlyQuota",
+            max_documents_per_system AS "maxDocumentsPerSystem",
+            other_limits AS "otherLimits"
+     FROM plan_limits WHERE subscription_product_id = $1`,
     [id]
   );
   plan.limits = limits.rows[0];
   const prices = await db.query(
-    `SELECT * FROM plan_prices WHERE subscription_product_id = $1`,
+    `SELECT id, billing_interval AS "billingInterval", stripe_price_id AS "stripePriceId",
+            unit_amount AS "unitAmount", currency
+     FROM plan_prices WHERE subscription_product_id = $1`,
     [id]
   );
   plan.prices = prices.rows;
@@ -192,7 +278,9 @@ module.exports = {
   getByCode,
   getAll,
   updatePlan,
+  setPopular,
   updatePlanLimits,
+  updatePlanFeatures,
   updatePlanPrice,
   getPlanById,
 };

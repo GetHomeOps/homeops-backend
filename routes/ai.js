@@ -384,7 +384,7 @@ router.post(
 
       await ensurePropertyAccessForUser(resolvedId, userId, res.locals.user.role);
 
-      const quotaCheck = await checkAiTokenQuota(userId);
+      const quotaCheck = await checkAiTokenQuota(userId, res.locals.user?.role);
       if (!quotaCheck.allowed) {
         throw new ForbiddenError(
           `AI token quota exceeded (${quotaCheck.used}/${quotaCheck.quota} this month). Upgrade your plan for more.`

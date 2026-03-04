@@ -290,6 +290,30 @@ async function processWebhookEvent(event) {
   }
 }
 
+/** List active Stripe prices with product info (for admin dropdown). */
+async function listActivePrices() {
+  if (BILLING_MOCK_MODE || !stripe) {
+    return [];
+  }
+
+  const prices = await stripe.prices.list({
+    active: true,
+    expand: ["data.product"],
+    limit: 100,
+  });
+
+  return (prices.data || []).map((p) => ({
+    id: p.id,
+    nickname: p.nickname || "",
+    unitAmount: p.unit_amount,
+    currency: p.currency,
+    interval: p.recurring?.interval || null,
+    intervalCount: p.recurring?.interval_count || null,
+    productId: typeof p.product === "string" ? p.product : p.product?.id,
+    productName: typeof p.product === "object" ? p.product?.name : null,
+  }));
+}
+
 module.exports = {
   stripe,
   getOrCreateStripeCustomer,
@@ -299,4 +323,5 @@ module.exports = {
   processWebhookEvent,
   isEventProcessed,
   handleSubscriptionUpdated,
+  listActivePrices,
 };
