@@ -33,6 +33,26 @@ const CANONICAL_SYSTEMS = [
   "inspections",
 ];
 
+/** Systems we intentionally exclude (e.g. appliances—we track property systems only). */
+const EXCLUDED_SYSTEMS = new Set([
+  "appliances",
+  "appliance",
+  "dishwasher",
+  "refrigerator",
+  "oven",
+  "stove",
+  "washer",
+  "dryer",
+  "microwave",
+  "garbage disposal",
+]);
+
+function isExcludedSystem(systemType) {
+  if (!systemType || typeof systemType !== "string") return false;
+  const key = systemType.toLowerCase().trim().replace(/\s+/g, "");
+  return EXCLUDED_SYSTEMS.has(key) || key.includes("appliance");
+}
+
 /** Only unambiguous terminology (e.g. "HVAC" = heating+ac). AI decides best-fit for everything else. */
 const SYSTEM_ALIASES = {
   hvac: ["heating", "ac"],
@@ -88,6 +108,8 @@ CRITICAL RULES:
 SYSTEM TYPE: For each finding, choose the best-fitting system. You have two options:
 1. Use a canonical type when it fits: ${CANONICAL_SYSTEMS_LIST}
 2. Use a custom systemType when none of the above fit well (e.g. "pool", "deck", "landscaping", "septic"). Use lowercase camelCase (e.g. swimmingPool) or kebab-case (e.g. swimming-pool).
+
+CRITICAL: Do NOT suggest or use "Appliances" or appliance-related systems (e.g. dishwasher, refrigerator, oven, stove, washer, dryer, microwave, garbage disposal). We track only property systems (roof, HVAC, plumbing, etc.), not appliances. If the report mentions appliances, skip them or map relevant issues to plumbing/electrical where appropriate.
 
 Analyze each report finding and assign the system that best describes it. Do not force findings into unrelated categories. If siding, stucco, or exterior envelope issues fit "exterior", use it. If a spa or pool fits neither plumbing nor any canonical type, use a custom "pool" or "spa". Use your judgment.
 
@@ -247,6 +269,7 @@ async function runAnalysis(jobId) {
   );
   for (const det of keywordDetections) {
     const normalized = normalizeSystemType(det.system) || det.system;
+    if (isExcludedSystem(normalized)) continue;
     if (!llmSystemTypes.has(normalized.toLowerCase())) {
       if (!parsed.systemsDetected) parsed.systemsDetected = [];
       parsed.systemsDetected.push({
@@ -273,7 +296,7 @@ async function runAnalysis(jobId) {
     })
     .filter((s) => {
       const key = (s.systemType || "").toString().toLowerCase();
-      if (!key || systemsDetectedSeen.has(key)) return false;
+      if (!key || systemsDetectedSeen.has(key) || isExcludedSystem(s.systemType)) return false;
       systemsDetectedSeen.add(key);
       return true;
     });
@@ -287,7 +310,7 @@ async function runAnalysis(jobId) {
     }))
     .filter((s) => {
       const key = (s.systemType || "").toString().toLowerCase();
-      if (!key || suggestedSystemsToAddSeen.has(key)) return false;
+      if (!key || suggestedSystemsToAddSeen.has(key) || isExcludedSystem(s.systemType)) return false;
       suggestedSystemsToAddSeen.add(key);
       return true;
     });
@@ -295,7 +318,7 @@ async function runAnalysis(jobId) {
   // Merge: add any system from systemsDetected (incl. pre-detected) that the LLM missed in suggestedSystemsToAdd
   for (const det of systemsDetected) {
     const key = (det.systemType || "").toString().toLowerCase();
-    if (key && !suggestedSystemsToAddSeen.has(key)) {
+    if (key && !suggestedSystemsToAddSeen.has(key) && !isExcludedSystem(det.systemType)) {
       suggestedSystemsToAddSeen.add(key);
       suggestedSystemsToAdd.push({
         systemType: det.systemType,
@@ -305,23 +328,27 @@ async function runAnalysis(jobId) {
     }
   }
 
-  const maintenanceSuggestions = (parsed.maintenanceSuggestions || []).map((s) => ({
-    systemType: normalizeSystemType(s.systemType) || s.systemType,
-    task: s.task || "",
-    suggestedWhen: s.suggestedWhen || "",
-    priority: s.priority || "medium",
-    rationale: s.rationale || "",
-    confidence: s.confidence ?? 0.5,
-  }));
+  const maintenanceSuggestions = (parsed.maintenanceSuggestions || [])
+    .filter((s) => !isExcludedSystem(s.systemType))
+    .map((s) => ({
+      systemType: normalizeSystemType(s.systemType) || s.systemType,
+      task: s.task || "",
+      suggestedWhen: s.suggestedWhen || "",
+      priority: s.priority || "medium",
+      rationale: s.rationale || "",
+      confidence: s.confidence ?? 0.5,
+    }));
 
-  const needsAttention = (parsed.needsAttention || []).map((n) => ({
-    title: n.title || "",
-    systemType: n.systemType ? normalizeSystemType(n.systemType) || n.systemType : null,
-    severity: n.severity || "medium",
-    evidence: n.evidence || null,
-    suggestedAction: n.suggestedAction || "",
-    priority: n.priority || "medium",
-  }));
+  const needsAttention = (parsed.needsAttention || [])
+    .filter((n) => !isExcludedSystem(n.systemType))
+    .map((n) => ({
+      title: n.title || "",
+      systemType: n.systemType ? normalizeSystemType(n.systemType) || n.systemType : null,
+      severity: n.severity || "medium",
+      evidence: n.evidence || null,
+      suggestedAction: n.suggestedAction || "",
+      priority: n.priority || "medium",
+    }));
 
   try {
     const result = await InspectionAnalysisResult.create({

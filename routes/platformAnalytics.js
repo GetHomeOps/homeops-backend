@@ -81,4 +81,14 @@ router.get("/costs/per-account", ensurePlatformAdmin, async function (req, res, 
   }
 });
 
+/** GET /agents - Agent analytics: agents, their properties, homeowners, invitations, communications, visits. Platform admin only. */
+router.get("/agents", ensurePlatformAdmin, async function (req, res, next) {
+  try {
+    const result = await PlatformMetrics.getAgentAnalytics();
+    return res.json(result);
+  } catch (err) {
+    return next(err);
+  }
+});
+
 module.exports = router;

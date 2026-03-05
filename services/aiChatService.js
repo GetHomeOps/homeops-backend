@@ -18,7 +18,6 @@ const SYSTEM_KEYWORDS = {
   hvac: ["hvac", "furnace", "air conditioning", "heating", "cooling", "ductwork", "thermostat", "condenser", "heat pump", "air handler"],
   electrical: ["electrical", "wiring", "breaker", "panel", "outlet", "circuit", "grounding", "gfci", "afci"],
   foundation: ["foundation", "crawl space", "basement", "slab", "footing", "settlement", "crack"],
-  appliances: ["appliance", "dishwasher", "refrigerator", "oven", "stove", "washer", "dryer", "microwave", "garbage disposal"],
   structure: ["structural", "framing", "load-bearing", "beam", "joist", "truss", "support"],
   gutters: ["gutter", "downspout", "drainage"],
   exterior: ["exterior", "siding", "stucco", "brick veneer", "paint", "cladding", "exterior walls", "exterior maintenance", "exterior surfaces", "trim", "caulking", "masonry", "weep hole", "vinyl siding", "wood siding", "hardie", "eifs", "weather barrier", "water intrusion"],

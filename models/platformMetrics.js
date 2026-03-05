@@ -248,6 +248,77 @@ class PlatformMetrics {
     );
     return result.rows;
   }
+
+  /**
+   * Get agent analytics: each agent user with their properties,
+   * homeowner counts per property, invitations, communications, and visits (page views).
+   */
+  static async getAgentAnalytics() {
+    const agentsRes = await db.query(
+      `WITH agent_accounts AS (
+        SELECT au.user_id AS agent_id, au.account_id, a.name AS account_name
+        FROM account_users au
+        JOIN accounts a ON a.id = au.account_id
+        JOIN users u ON u.id = au.user_id AND u.role::text = 'agent'
+      ),
+      agent_property_ids AS (
+        SELECT aa.agent_id, p.id AS property_id
+        FROM agent_accounts aa
+        JOIN properties p ON p.account_id = aa.account_id
+      )
+      SELECT
+        u.id AS "agentId",
+        u.name AS "agentName",
+        u.email AS "agentEmail",
+        COALESCE((
+          SELECT json_agg(json_build_object('id', aa.account_id, 'name', aa.account_name))
+          FROM agent_accounts aa WHERE aa.agent_id = u.id
+        ), '[]'::json) AS "accounts",
+        COALESCE((
+          SELECT COUNT(*)::int FROM agent_property_ids ap WHERE ap.agent_id = u.id
+        ), 0) AS "propertiesCount",
+        COALESCE((
+          SELECT COUNT(*)::int FROM invitations i WHERE i.inviter_user_id = u.id
+        ), 0) AS "invitationsSent",
+        COALESCE((
+          SELECT COUNT(*)::int FROM communications c WHERE c.created_by = u.id AND c.status = 'sent'
+        ), 0) AS "communicationsSent",
+        COALESCE((
+          SELECT COUNT(*)::int
+          FROM platform_engagement_events e
+          WHERE e.event_type = 'page_view'
+            AND e.user_id IN (
+              SELECT pu.user_id FROM agent_property_ids ap
+              JOIN property_users pu ON pu.property_id = ap.property_id
+              WHERE ap.agent_id = u.id
+            )
+        ), 0) AS "pageViews"
+      FROM users u
+      WHERE u.role::text = 'agent'
+      ORDER BY u.name`
+    );
+
+    const agents = agentsRes.rows.map((row) => ({
+      ...row,
+      accounts: Array.isArray(row.accounts) ? row.accounts : (row.accounts ? JSON.parse(row.accounts) : []),
+    }));
+
+    for (const agent of agents) {
+      const propsRes = await db.query(
+        `SELECT p.id AS "propertyId", p.property_name AS "propertyName",
+                p.address, p.city, p.state,
+                (SELECT COUNT(*)::int FROM property_users pu WHERE pu.property_id = p.id) AS "homeownersCount"
+         FROM properties p
+         JOIN account_users au ON au.account_id = p.account_id
+         WHERE au.user_id = $1
+         ORDER BY p.property_name NULLS LAST, p.address`,
+        [agent.agentId]
+      );
+      agent.properties = propsRes.rows;
+    }
+
+    return { agents };
+  }
 }
 
 module.exports = PlatformMetrics;

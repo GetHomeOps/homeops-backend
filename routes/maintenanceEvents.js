@@ -9,8 +9,35 @@ const MaintenanceEvent = require("../models/maintenanceEvent");
 const maintenanceEventNewSchema = require("../schemas/maintenanceEventNew.json");
 const maintenanceEventUpdateSchema = require("../schemas/maintenanceEventUpdate.json");
 const { onEventScheduled } = require("../services/resourceAutoSend");
+const { getMaintenanceAdvice } = require("../services/maintenanceAdviceService");
 
 const router = express.Router();
+
+/** POST /:propertyId/ai-advice - Get AI maintenance advice for a system. */
+router.post(
+  "/:propertyId/ai-advice",
+  ensureLoggedIn,
+  resolvePropertyIdForCreate,
+  ensurePropertyAccess({ param: "propertyId" }),
+  async function (req, res, next) {
+    try {
+      const { propertyId } = req.params;
+      const { systemType, systemName, systemContext } = req.body || {};
+      if (!systemType || !systemName) {
+        throw new BadRequestError("systemType and systemName are required");
+      }
+      const advice = await getMaintenanceAdvice({
+        propertyId,
+        systemType,
+        systemName,
+        systemContext: systemContext || {},
+      });
+      return res.json({ advice });
+    } catch (err) {
+      return next(err);
+    }
+  }
+);
 
 /** Resolve property_uid to numeric id so maintenance_events.property_id (integer) works. */
 async function resolvePropertyIdForCreate(req, res, next) {
