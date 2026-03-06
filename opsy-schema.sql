@@ -86,6 +86,24 @@ CREATE INDEX idx_refresh_tokens_user_id ON refresh_tokens(user_id);
 CREATE INDEX idx_refresh_tokens_expires_at ON refresh_tokens(expires_at);
 
 -- ============================================================
+-- Password Reset Tokens (forgot password flow)
+-- Tokens are hashed before storage; raw token sent via email
+-- ============================================================
+
+CREATE TABLE password_reset_tokens (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    token_hash TEXT NOT NULL UNIQUE,
+    expires_at TIMESTAMPTZ NOT NULL,
+    used_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_password_reset_tokens_user_id ON password_reset_tokens(user_id);
+CREATE INDEX idx_password_reset_tokens_token_hash ON password_reset_tokens(token_hash);
+CREATE INDEX idx_password_reset_tokens_expires_at ON password_reset_tokens(expires_at);
+
+-- ============================================================
 -- API Usage (per-user AI token tracking for tier limits)
 -- ============================================================
 CREATE TABLE IF NOT EXISTS user_api_usage (
@@ -159,6 +177,26 @@ CREATE TABLE account_contacts (
 );
 
 CREATE INDEX idx_account_contacts_account_id ON account_contacts(account_id);
+
+-- Tags: account-scoped tags for contacts
+CREATE TABLE tags (
+    id SERIAL PRIMARY KEY,
+    account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    name VARCHAR(100) NOT NULL,
+    color VARCHAR(50) DEFAULT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(account_id, name)
+);
+CREATE INDEX idx_tags_account_id ON tags(account_id);
+
+-- Contact tags: many-to-many contact <-> tags
+CREATE TABLE contact_tags (
+    contact_id INTEGER NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+    tag_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+    PRIMARY KEY (contact_id, tag_id)
+);
+CREATE INDEX idx_contact_tags_contact_id ON contact_tags(contact_id);
+CREATE INDEX idx_contact_tags_tag_id ON contact_tags(tag_id);
 
 -- ============================================================
 -- Properties
@@ -282,10 +320,30 @@ CREATE TABLE property_maintenance (
     next_service_date TIMESTAMPTZ,
     data JSONB DEFAULT '{}',
     status VARCHAR(50) DEFAULT 'pending',
-    record_status VARCHAR(50),
+    record_status VARCHAR(50),  -- draft, user_completed, contractor_pending, contractor_completed
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Contractor report tokens: unique links for contractors to fill out maintenance/inspection
+-- reports without needing an account (record_status contractor_completed when submitted)
+CREATE TABLE contractor_report_tokens (
+    id SERIAL PRIMARY KEY,
+    maintenance_record_id INTEGER NOT NULL REFERENCES property_maintenance(id) ON DELETE CASCADE,
+    property_id INTEGER NOT NULL REFERENCES properties(id) ON DELETE CASCADE,
+    contractor_email VARCHAR(255) NOT NULL,
+    contractor_name VARCHAR(255),
+    token_hash VARCHAR(128) NOT NULL UNIQUE,
+    status VARCHAR(30) DEFAULT 'pending' CHECK (status IN ('pending', 'completed', 'expired', 'revoked')),
+    expires_at TIMESTAMPTZ NOT NULL,
+    completed_at TIMESTAMPTZ,
+    created_by INTEGER REFERENCES users(id),
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_contractor_report_tokens_hash ON contractor_report_tokens(token_hash);
+CREATE INDEX idx_contractor_report_tokens_record ON contractor_report_tokens(maintenance_record_id);
 
 CREATE TABLE property_documents (
     id SERIAL PRIMARY KEY,
@@ -538,9 +596,10 @@ CREATE INDEX idx_prof_categories_type ON professional_categories(type);
 
 CREATE TABLE professionals (
     id SERIAL PRIMARY KEY,
-    first_name VARCHAR(100) NOT NULL,
-    last_name VARCHAR(100) NOT NULL,
-    company_name VARCHAR(255),
+    first_name VARCHAR(100) DEFAULT '',
+    last_name VARCHAR(100) DEFAULT '',
+    contact_name VARCHAR(255),
+    company_name VARCHAR(255) NOT NULL,
     category_id INTEGER REFERENCES professional_categories(id),
     subcategory_id INTEGER REFERENCES professional_categories(id),
     description TEXT,
@@ -603,6 +662,22 @@ CREATE TABLE saved_professionals (
 CREATE INDEX idx_saved_professionals_user ON saved_professionals(user_id);
 
 -- ============================================================
+-- Professional Reviews (one per user per professional, eligibility via completed maintenance_events)
+-- ============================================================
+CREATE TABLE professional_reviews (
+    id SERIAL PRIMARY KEY,
+    professional_id INTEGER NOT NULL REFERENCES professionals(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    rating INTEGER NOT NULL CHECK (rating >= 1 AND rating <= 5),
+    comment TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(professional_id, user_id)
+);
+
+CREATE INDEX idx_professional_reviews_professional ON professional_reviews(professional_id);
+CREATE INDEX idx_professional_reviews_user ON professional_reviews(user_id);
+
+-- ============================================================
 -- Maintenance Events (scheduled maintenance)
 -- ============================================================
 
@@ -626,6 +701,7 @@ CREATE TABLE maintenance_events (
     message_body TEXT,
     status VARCHAR(30) DEFAULT 'scheduled',
     timezone VARCHAR(50),
+    checklist_item_id INTEGER,
     created_by INTEGER REFERENCES users(id),
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
@@ -856,6 +932,42 @@ CREATE TABLE inspection_analysis_results (
 );
 
 CREATE INDEX idx_inspection_analysis_results_property ON inspection_analysis_results(property_id);
+
+-- ============================================================
+-- Inspection Checklist Items (per-finding tracking from analysis)
+-- ============================================================
+
+CREATE TABLE inspection_checklist_items (
+    id SERIAL PRIMARY KEY,
+    analysis_result_id INTEGER NOT NULL REFERENCES inspection_analysis_results(id) ON DELETE CASCADE,
+    property_id INTEGER NOT NULL REFERENCES properties(id) ON DELETE CASCADE,
+    system_key VARCHAR(50) NOT NULL,
+    source VARCHAR(30) NOT NULL CHECK (source IN ('needs_attention', 'maintenance_suggestion')),
+    source_index INTEGER NOT NULL,
+    title VARCHAR(500) NOT NULL,
+    description TEXT,
+    severity VARCHAR(20),
+    priority VARCHAR(20),
+    suggested_when VARCHAR(100),
+    evidence TEXT,
+    status VARCHAR(30) NOT NULL DEFAULT 'pending'
+        CHECK (status IN ('pending', 'in_progress', 'completed', 'deferred', 'not_applicable')),
+    linked_maintenance_id INTEGER REFERENCES property_maintenance(id) ON DELETE SET NULL,
+    completed_at TIMESTAMPTZ,
+    completed_by INTEGER REFERENCES users(id),
+    notes TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_checklist_property ON inspection_checklist_items(property_id);
+CREATE INDEX idx_checklist_system ON inspection_checklist_items(property_id, system_key);
+CREATE INDEX idx_checklist_status ON inspection_checklist_items(property_id, status);
+CREATE INDEX idx_checklist_analysis ON inspection_checklist_items(analysis_result_id);
+
+ALTER TABLE maintenance_events
+    ADD CONSTRAINT fk_maintenance_events_checklist
+    FOREIGN KEY (checklist_item_id) REFERENCES inspection_checklist_items(id) ON DELETE SET NULL;
 
 -- ============================================================
 -- Property AI Profile (token + UX optimization for chat)

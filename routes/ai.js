@@ -137,7 +137,7 @@ async function saveMessage(conversationId, role, content, uiDirectives = null) {
 
 async function getSystemContextFromDb(propertyId, systemId) {
   const systemKey = (systemId || "").toLowerCase();
-  const [analysisRes, maintenanceRes, recordsRes] = await Promise.all([
+  const [analysisRes, maintenanceRes, recordsRes, checklistRes] = await Promise.all([
     db.query(
       `SELECT systems_detected, needs_attention, maintenance_suggestions
        FROM inspection_analysis_results r
@@ -160,6 +160,13 @@ async function getSystemContextFromDb(propertyId, systemId) {
        ORDER BY completed_at DESC NULLS LAST LIMIT 5`,
       [propertyId, systemKey]
     ),
+    db.query(
+      `SELECT status, COUNT(*)::int AS count
+       FROM inspection_checklist_items
+       WHERE property_id = $1 AND (system_key = $2 OR system_key ILIKE $2)
+       GROUP BY status`,
+      [propertyId, systemKey]
+    ).catch(() => ({ rows: [] })),
   ]);
   const analysis = analysisRes.rows[0] || {};
   const systemsDetected = analysis.systems_detected || [];
@@ -176,6 +183,16 @@ async function getSystemContextFromDb(propertyId, systemId) {
   const upcomingEvents = maintenanceRes.rows.filter(
     (e) => (e.scheduled_date || "") >= new Date().toISOString().slice(0, 10)
   );
+
+  const checklistProgress = {};
+  let checklistTotal = 0;
+  let checklistCompleted = 0;
+  for (const row of checklistRes.rows) {
+    checklistProgress[row.status] = row.count;
+    checklistTotal += row.count;
+    if (row.status === "completed") checklistCompleted = row.count;
+  }
+
   return {
     systemCondition: sysMatch?.condition || "unknown",
     lastMaintenanceDate: lastRecord?.completed_at || lastRecord?.next_service_date || null,
@@ -189,6 +206,9 @@ async function getSystemContextFromDb(propertyId, systemId) {
       severity: x.severity || x.priority,
       suggestedAction: x.suggestedAction || x.rationale || x.suggestedWhen,
     })),
+    checklistProgress: checklistTotal > 0
+      ? { total: checklistTotal, completed: checklistCompleted, ...checklistProgress }
+      : null,
   };
 }
 
@@ -218,6 +238,14 @@ You MUST discuss ONLY the ${systemName} system unless the user explicitly change
     if (lastMaintenance) prompt += ` Last maintenance: ${lastMaintenance}.`;
     if (upcomingEvents?.length) prompt += ` Upcoming events: ${JSON.stringify(upcomingEvents)}.`;
     if (findings?.length) prompt += ` Inspection findings for this system: ${JSON.stringify(findings)}.`;
+
+    const checklistProgress = systemCtx?.checklistProgress;
+    if (checklistProgress) {
+      prompt += ` Inspection checklist progress: ${checklistProgress.completed} of ${checklistProgress.total} items completed.`;
+      if (checklistProgress.pending) prompt += ` ${checklistProgress.pending} items still pending.`;
+      if (checklistProgress.in_progress) prompt += ` ${checklistProgress.in_progress} items in progress.`;
+    }
+
     prompt += `
 
 Structure your response: Current condition, Risk level, Recommended action, Optional cost estimate range.`;
@@ -459,9 +487,11 @@ router.post(
         contextSummary
       );
 
-      // --- Document RAG (scoped to query, not full property) ---
+      // --- Document RAG (scoped to system when in system context, else property-wide) ---
+      const docOptions = { limit: 6 };
+      if (systemId) docOptions.systemKey = systemId;
       const docContext = await documentRagService
-        .getDocumentContext(resolvedId, message, { limit: 6 })
+        .getDocumentContext(resolvedId, message, docOptions)
         .catch(() => "");
 
       let contextBlock = `Property context:\n${focusedContext}`;

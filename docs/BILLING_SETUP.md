@@ -5,7 +5,7 @@ This document describes how to configure Stripe subscription billing for HomeOps
 ## Prerequisites
 
 - Stripe account
-- PostgreSQL database with migrations applied
+- PostgreSQL database (run `opsy-schema.sql` or `opsyDB.sql`)
 
 ## Environment Variables
 
@@ -38,11 +38,7 @@ Set `BILLING_MOCK_MODE=true` to simulate active subscriptions without Stripe. Us
 
 ## Database Setup
 
-1. Run the billing migration (if using migrations):
-
-```bash
-psql $DATABASE_URL -f migrations/010_billing_stripe.sql
-```
+1. Billing tables are included in `opsy-schema.sql`. Run `opsyDB.sql` or `opsy-schema.sql` for a fresh install.
 
 2. Plans are seeded automatically on server start from `data/plans.json`. No manual seed required. To re-seed:
 

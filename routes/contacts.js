@@ -5,6 +5,7 @@ const jsonschema = require("jsonschema");
 const { ensureSuperAdmin, ensurePlatformAdmin, ensureLoggedIn, ensureUserCanAccessAccountByParam } = require("../middleware/auth");
 const { BadRequestError, ForbiddenError } = require("../expressError");
 const Contact = require("../models/contact");
+const Tag = require("../models/tag");
 const { canAddContact } = require("../services/tierService");
 const contactUpdateSchema = require("../schemas/contactUpdate.json");
 const { addPresignedUrlToItem, addPresignedUrlsToItems } = require("../helpers/presignedUrls");
@@ -17,6 +18,48 @@ router.get("/all", ensurePlatformAdmin, async function (req, res, next) {
     const contacts = await Contact.getAll();
     const contactsWithUrls = await addPresignedUrlsToItems(contacts, "image", "image_url");
     return res.json({ contacts: contactsWithUrls });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+/** GET /account/:accountId/tags - List tags for an account. Requires account access. */
+router.get("/account/:accountId/tags", ensureLoggedIn, ensureUserCanAccessAccountByParam("accountId"), async function (req, res, next) {
+  try {
+    const tags = await Tag.getByAccountId(req.params.accountId);
+    return res.json({ tags });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+/** POST /account/:accountId/tags - Create a tag for an account. */
+router.post("/account/:accountId/tags", ensureLoggedIn, ensureUserCanAccessAccountByParam("accountId"), async function (req, res, next) {
+  try {
+    const { name, color } = req.body || {};
+    if (!name || typeof name !== "string" || !name.trim()) {
+      throw new BadRequestError("name is required");
+    }
+    const tag = await Tag.create({
+      accountId: req.params.accountId,
+      name: name.trim(),
+      color: color || null,
+    });
+    return res.status(201).json({ tag });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+/** DELETE /account/:accountId/tags/:tagId - Delete a tag. Tag must belong to account. */
+router.delete("/account/:accountId/tags/:tagId", ensureLoggedIn, ensureUserCanAccessAccountByParam("accountId"), async function (req, res, next) {
+  try {
+    const tag = await Tag.get(req.params.tagId);
+    if (Number(tag.account_id) !== Number(req.params.accountId)) {
+      throw new ForbiddenError("Tag does not belong to this account");
+    }
+    await Tag.remove(req.params.tagId);
+    return res.json({ deleted: req.params.tagId });
   } catch (err) {
     return next(err);
   }

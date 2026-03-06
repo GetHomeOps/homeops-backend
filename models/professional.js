@@ -7,7 +7,7 @@ const { sqlForPartialUpdate } = require("../helpers/sql");
 class Professional {
   static async create(data) {
     const {
-      first_name, last_name, company_name, category_id, subcategory_id,
+      first_name = "", last_name = "", contact_name, company_name, category_id, subcategory_id,
       description, phone, email, website,
       street1, street2, city, state, zip_code, country, service_area,
       budget_level, languages = [], years_in_business,
@@ -16,15 +16,15 @@ class Professional {
 
     const result = await db.query(
       `INSERT INTO professionals
-         (first_name, last_name, company_name, category_id, subcategory_id,
+         (first_name, last_name, contact_name, company_name, category_id, subcategory_id,
           description, phone, email, website,
           street1, street2, city, state, zip_code, country, service_area,
           budget_level, languages, years_in_business,
           is_verified, license_number, profile_photo, account_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)
        RETURNING *`,
       [
-        first_name, last_name, company_name || null, category_id || null, subcategory_id || null,
+        first_name || "", last_name || "", contact_name || null, company_name, category_id || null, subcategory_id || null,
         description || null, phone || null, email || null, website || null,
         street1 || null, street2 || null, city || null, state || null,
         zip_code || null, country || null, service_area || null,
@@ -62,7 +62,7 @@ class Professional {
     if (filters.search) {
       conditions.push(`(
         p.first_name ILIKE $${idx} OR p.last_name ILIKE $${idx} OR
-        p.company_name ILIKE $${idx} OR pc.name ILIKE $${idx} OR sc.name ILIKE $${idx}
+        p.contact_name ILIKE $${idx} OR p.company_name ILIKE $${idx} OR pc.name ILIKE $${idx} OR sc.name ILIKE $${idx}
       )`);
       values.push(`%${filters.search}%`);
       idx++;
@@ -139,6 +139,7 @@ class Professional {
     const { setCols, values } = sqlForPartialUpdate(data, {
       first_name: "first_name",
       last_name: "last_name",
+      contact_name: "contact_name",
       company_name: "company_name",
       category_id: "category_id",
       subcategory_id: "subcategory_id",

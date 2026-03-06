@@ -1,10 +1,10 @@
 "use strict";
 
 const express = require("express");
-const path = require("path");
 const { ensureLoggedIn, ensurePlatformAdmin } = require("../middleware/auth");
 const { BadRequestError } = require("../expressError");
 const ProfessionalCategory = require("../models/professionalCategory");
+const { ensureProfessionalCategories } = require("../services/professionalCategorySeedService");
 const { addPresignedUrlToItem, addPresignedUrlsToItems } = require("../helpers/presignedUrls");
 
 const router = express.Router();
@@ -40,39 +40,14 @@ router.get("/hierarchy", ensureLoggedIn, async function (req, res, next) {
 /** POST /seed - Seed categories from JSON file. Admin only. Skips if categories already exist. */
 router.post("/seed", ensurePlatformAdmin, async function (req, res, next) {
   try {
-    const existing = await ProfessionalCategory.getAll();
-    if (existing.length > 0) {
-      return res.json({ message: "Categories already seeded", count: existing.length });
+    const { created, skipped, existingCount } = await ensureProfessionalCategories();
+    if (skipped) {
+      return res.json({ message: "Categories already seeded", count: existingCount ?? 0 });
     }
-
-    const seedData = require(path.join(__dirname, "..", "data", "professionalCategoriesSeed.json"));
-    let created = 0;
-
-    for (const parent of seedData) {
-      const parentCat = await ProfessionalCategory.create({
-        name: parent.name,
-        description: parent.description,
-        type: "parent",
-        parent_id: null,
-        icon: parent.icon || null,
-        sort_order: parent.sort_order || 0,
-      });
-      created++;
-
-      for (const child of parent.children || []) {
-        await ProfessionalCategory.create({
-          name: child.name,
-          description: child.description,
-          type: "child",
-          parent_id: parentCat.id,
-          icon: null,
-          sort_order: child.sort_order || 0,
-        });
-        created++;
-      }
+    if (created > 0) {
+      return res.status(201).json({ message: "Categories seeded successfully", count: created });
     }
-
-    return res.status(201).json({ message: "Categories seeded successfully", count: created });
+    return res.json({ message: "No categories to seed (seed file empty or missing)" });
   } catch (err) {
     return next(err);
   }

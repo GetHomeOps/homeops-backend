@@ -1,6 +1,6 @@
 # pgvector Setup
 
-The `document_chunks` table and Document RAG (AI over property documents) require the [pgvector](https://github.com/pgvector/pgvector) extension. Install it before running `posDB.sql` or `pos-schema.sql`.
+The `document_chunks` table and Document RAG (AI over property documents) require the [pgvector](https://github.com/pgvector/pgvector) extension. Install it before running `opsyDB.sql` or `opsy-schema.sql`.
 
 ## macOS (Homebrew)
 
@@ -39,7 +39,7 @@ docker run -d \
   --name postgres \
   -e POSTGRES_USER=youruser \
   -e POSTGRES_PASSWORD=yourpassword \
-  -e POSTGRES_DB=posdb \
+  -e POSTGRES_DB=opsy \
   -p 5432:5432 \
   ankane/pgvector
 ```
@@ -60,4 +60,4 @@ CREATE EXTENSION IF NOT EXISTS vector;
 \dx
 ```
 
-You should see `vector` in the list of extensions. Then run `posDB.sql` or `pos-schema.sql` as usual.
+You should see `vector` in the list of extensions. Then run `opsyDB.sql` or `opsy-schema.sql` as usual.

@@ -4,7 +4,7 @@ const express = require("express");
 const { ensureLoggedIn, ensurePropertyOwner } = require("../middleware/auth");
 const { BadRequestError, ForbiddenError } = require("../expressError");
 const Invitation = require("../models/invitation");
-const { createPropertyInvitation, createAccountInvitation, acceptInvitation, acceptInvitationForLoggedInUser } = require("../services/invitationService");
+const { createPropertyInvitation, createAccountInvitation, acceptInvitation, acceptInvitationForLoggedInUser, resendInvitation } = require("../services/invitationService");
 const { canInviteViewer, canAddTeamMember } = require("../services/tierService");
 
 const router = express.Router();
@@ -87,6 +87,18 @@ router.post("/:id/revoke", ensureLoggedIn, async function (req, res, next) {
   try {
     const result = await Invitation.revoke(req.params.id);
     return res.json(result);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+/** POST /:id/resend - Resend invitation email to invitee. */
+router.post("/:id/resend", ensureLoggedIn, async function (req, res, next) {
+  try {
+    const invitationId = req.params.id?.trim?.() || req.params.id;
+    const inviterUserId = res.locals.user.id;
+    const result = await resendInvitation(invitationId, inviterUserId);
+    return res.json({ success: true, message: "Invitation email sent", invitation: result.invitation });
   } catch (err) {
     return next(err);
   }

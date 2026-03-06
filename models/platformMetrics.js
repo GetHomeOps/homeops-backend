@@ -250,6 +250,78 @@ class PlatformMetrics {
   }
 
   /**
+   * Get cost per user: total cost, breakdown by category (AI, S3 storage, email),
+   * API call count (OpenAI), document count (S3 uploads), and token count.
+   * Includes ALL users (including super_admin) even when they have no usage (shows $0).
+   */
+  static async getCostPerUser({ startDate, endDate } = {}) {
+    const clauses = [];
+    const values = [];
+    if (startDate) {
+      values.push(startDate);
+      clauses.push(`ue.created_at >= $${values.length}`);
+    }
+    if (endDate) {
+      values.push(endDate);
+      clauses.push(`ue.created_at <= $${values.length}`);
+    }
+    const where = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
+    const subWhere = clauses.length > 0
+      ? clauses.map((c) => c.replace("ue.", "ue2.")).join(" AND ")
+      : "TRUE";
+
+    const result = await db.query(
+      `WITH usage_by_user AS (
+         SELECT
+           ue.user_id,
+           COALESCE(SUM(ue.total_cost), 0)::numeric(12,6) AS "totalCost",
+           COALESCE(SUM(CASE WHEN ue.category = 'ai_tokens' THEN ue.total_cost ELSE 0 END), 0)::numeric(12,6) AS "aiCost",
+           COALESCE(SUM(CASE WHEN ue.category = 'storage' THEN ue.total_cost ELSE 0 END), 0)::numeric(12,6) AS "storageCost",
+           COALESCE(SUM(CASE WHEN ue.category = 'email' THEN ue.total_cost ELSE 0 END), 0)::numeric(12,6) AS "emailCost",
+           COUNT(CASE WHEN ue.category = 'ai_tokens' THEN 1 END)::int AS "apiCallCount",
+           COUNT(CASE WHEN ue.category = 'storage' THEN 1 END)::int AS "documentCount",
+           COALESCE(SUM(CASE WHEN ue.category = 'ai_tokens' THEN ue.quantity ELSE 0 END), 0)::bigint AS "tokenCount"
+         FROM account_usage_events ue
+         ${where}
+         GROUP BY ue.user_id
+       )
+       SELECT u.id AS "userId",
+              u.name AS "userName", u.email AS "userEmail",
+              u.role::text AS "userRole",
+              (SELECT STRING_AGG(DISTINCT a2.name, ', ')
+               FROM account_usage_events ue2
+               JOIN accounts a2 ON a2.id = ue2.account_id
+               WHERE ue2.user_id = u.id AND ${subWhere}) AS "accountNames",
+              COALESCE(ub."totalCost", 0)::numeric(12,6) AS "totalCost",
+              COALESCE(ub."aiCost", 0)::numeric(12,6) AS "aiCost",
+              COALESCE(ub."storageCost", 0)::numeric(12,6) AS "storageCost",
+              COALESCE(ub."emailCost", 0)::numeric(12,6) AS "emailCost",
+              COALESCE(ub."apiCallCount", 0)::int AS "apiCallCount",
+              COALESCE(ub."documentCount", 0)::int AS "documentCount",
+              COALESCE(ub."tokenCount", 0)::bigint AS "tokenCount"
+       FROM users u
+       LEFT JOIN usage_by_user ub ON ub.user_id = u.id
+       ORDER BY "totalCost" DESC NULLS LAST, u.name`,
+      values
+    );
+
+    return result.rows.map((row) => ({
+      userId: row.userId,
+      userName: row.userName,
+      userEmail: row.userEmail,
+      userRole: row.userRole || "",
+      accountNames: row.accountNames || "",
+      totalCost: parseFloat(row.totalCost),
+      aiCost: parseFloat(row.aiCost),
+      storageCost: parseFloat(row.storageCost),
+      emailCost: parseFloat(row.emailCost),
+      apiCallCount: row.apiCallCount,
+      documentCount: row.documentCount,
+      tokenCount: Number(row.tokenCount),
+    }));
+  }
+
+  /**
    * Get agent analytics: each agent user with their properties,
    * homeowner counts per property, invitations, communications, and visits (page views).
    */

@@ -38,6 +38,7 @@ const userAuthSchema = require("../schemas/userAuth.json");
 const userRegisterSchema = require("../schemas/userRegister.json");
 const { BadRequestError, UnauthorizedError } = require("../expressError");
 const { acceptInvitation } = require("../services/invitationService");
+const { requestPasswordReset, resetPasswordWithToken } = require("../services/passwordResetService");
 const { onUserCreated } = require("../services/resourceAutoSend");
 const Account = require("../models/account");
 const Contact = require("../models/contact");
@@ -321,6 +322,37 @@ router.post("/mfa/verify", mfaVerifyLimiter, async function (req, res, next) {
     } catch (logErr) { /* don't block login */ }
 
     return res.json(tokens);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+const forgotPasswordLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: { message: "Too many reset requests. Please try again later.", status: 429 } },
+});
+
+router.post("/forgot-password", forgotPasswordLimiter, async function (req, res, next) {
+  try {
+    const { email } = req.body;
+    if (!email || typeof email !== "string") {
+      throw new BadRequestError("Email is required");
+    }
+    const result = await requestPasswordReset(email);
+    return res.json(result);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.post("/reset-password", async function (req, res, next) {
+  try {
+    const { token, newPassword } = req.body;
+    const result = await resetPasswordWithToken(token, newPassword);
+    return res.json(result);
   } catch (err) {
     return next(err);
   }

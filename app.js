@@ -45,6 +45,7 @@ const resourcesRoutes = require("./routes/resources");
 const communicationsRoutes = require("./routes/communications");
 const notificationsRoutes = require("./routes/notifications");
 const inspectionAnalysisRoutes = require("./routes/inspectionAnalysis");
+const inspectionChecklistRoutes = require("./routes/inspectionChecklist");
 const aiRoutes = require("./routes/ai");
 const webhookRoutes = require("./routes/webhooks");
 const billingRoutes = require("./routes/billing");
@@ -73,6 +74,10 @@ app.use(cookieParser());
 app.use("/webhooks", express.raw({ type: "application/json" }), webhookRoutes);
 
 app.use(express.json());
+
+// Public contractor report routes — mounted before authenticateJWT so no token is needed
+const contractorReportRoutes = require("./routes/contractorReport");
+app.use("/contractor-report", contractorReportRoutes);
 
 app.get('/', (req, res) => {
   res.json({
@@ -129,6 +134,7 @@ app.use("/resources", resourcesRoutes);
 app.use("/communications", communicationsRoutes);
 app.use("/notifications", notificationsRoutes);
 app.use("/inspection-analysis", inspectionAnalysisRoutes);
+app.use("/", inspectionChecklistRoutes);
 app.use("/ai", aiRoutes);
 app.use("/billing", billingRoutes);
 

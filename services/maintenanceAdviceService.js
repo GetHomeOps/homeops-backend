@@ -11,7 +11,7 @@ const OpenAI = require("openai");
 const db = require("../db");
 const InspectionAnalysisResult = require("../models/inspectionAnalysisResult");
 const { getAiSummaryForProperty } = require("./ai/propertyReanalysisService");
-const { normalizeSystemType } = require("./inspectionAnalysisService");
+const { normalizeSystemType } = require("./systemTypes");
 
 const MODEL = process.env.AI_MAINTENANCE_ADVICE_MODEL || "gpt-4o-mini";
 

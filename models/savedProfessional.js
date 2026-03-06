@@ -40,7 +40,7 @@ class SavedProfessional {
        LEFT JOIN professional_categories pc ON pc.id = p.category_id
        LEFT JOIN professional_categories sc ON sc.id = p.subcategory_id
        WHERE sp.user_id = $1
-       ORDER BY p.first_name, p.last_name`,
+       ORDER BY p.company_name`,
       [userId],
     );
     return result.rows;

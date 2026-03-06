@@ -198,6 +198,24 @@ class Invitation {
     if (!invitation) throw new UnauthorizedError("Invalid or expired invitation token");
     return invitation;
   }
+
+  /** Regenerate token for a pending invitation. Returns { invitation, token }. */
+  static async regenerateToken(id) {
+    const invitation = await this.get(id);
+    if (invitation.status !== "pending") {
+      throw new BadRequestError("Invitation is no longer pending");
+    }
+    if (new Date(invitation.expiresAt) <= new Date()) {
+      throw new BadRequestError("Invitation has expired");
+    }
+    const token = crypto.randomBytes(32).toString("hex");
+    const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+    await db.query(
+      `UPDATE invitations SET token_hash = $1 WHERE id = $2 AND status = 'pending'`,
+      [tokenHash, id]
+    );
+    return { invitation: await this.get(id), token };
+  }
 }
 
 module.exports = Invitation;

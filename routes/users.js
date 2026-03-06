@@ -107,7 +107,8 @@ router.get("/:email", ensureLoggedIn, async function (req, res, next) {
       throw new ForbiddenError("You can only view your own profile.");
     }
     const user = await User.get(req.params.email);
-    return res.json({ user });
+    const userWithUrl = await addPresignedUrlToItem(user, "image", "image_url");
+    return res.json({ user: userWithUrl });
   } catch (err) {
     return next(err);
   }

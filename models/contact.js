@@ -5,6 +5,7 @@
  *
  * Manages contacts in the `contacts` table. Contacts represent people or
  * organizations (e.g., vendors, tenants) and can be linked to accounts.
+ * Tags are many-to-many via contact_tags.
  *
  * Key operations:
  * - create / get / getAll: CRUD for contacts
@@ -14,15 +15,38 @@
  */
 
 const db = require("../db.js");
-const { BadRequestError, NotFoundError } = require("../expressError");
+const { NotFoundError } = require("../expressError");
 const { sqlForPartialUpdate } = require("../helpers/sql");
 
+const TAGS_SUBQUERY = `COALESCE(
+  (SELECT json_agg(json_build_object('id', t.id, 'name', t.name, 'color', t.color))
+   FROM contact_tags ct
+   JOIN tags t ON t.id = ct.tag_id
+   WHERE ct.contact_id = c.id),
+  '[]'::json
+)`;
+
 class Contact {
+  /** Sync contact_tags for a contact. Replaces existing assignments. */
+  static async _syncContactTags(contactId, tagIds) {
+    await db.query(
+      `DELETE FROM contact_tags WHERE contact_id = $1`,
+      [contactId]
+    );
+    const ids = Array.isArray(tagIds) ? tagIds.filter((id) => id != null) : [];
+    if (ids.length === 0) return;
+    const values = ids.map((_, i) => `($1, $${i + 2})`).join(", ");
+    await db.query(
+      `INSERT INTO contact_tags (contact_id, tag_id) VALUES ${values}`,
+      [contactId, ...ids]
+    );
+  }
+
   /** Create a contact (from data), update db, return new contact data.
    *
-   * data should be { name (required), image, type, phone, email, website, street1, street2, city, state, zip_code, country, country_code, notes, role }
+   * data should be { name (required), image, type, phone, email, website, street1, street2, city, state, zip_code, country, country_code, notes, role, tagIds? }
    *
-   * Returns { id, name, image, type, phone, email, website, street1, street2, city, state, zip_code, country, country_code, notes, role, created_at, updated_at }
+   * Returns contact with tags array.
    **/
   static async create(data) {
     const {
@@ -40,7 +64,8 @@ class Contact {
       country = null,
       country_code = null,
       notes = null,
-      role = null
+      role = null,
+      tagIds,
     } = data;
 
     const result = await db.query(
@@ -67,7 +92,23 @@ class Contact {
       [name, image, type, phone, email, website, street1, street2, city, state, zip_code, country, country_code, notes, role]
     );
 
-    return result.rows[0];
+    const contact = result.rows[0];
+    await this._syncContactTags(contact.id, tagIds);
+    contact.tags = await this._getTagsForContact(contact.id);
+    return contact;
+  }
+
+  /** Get tags array for a contact. */
+  static async _getTagsForContact(contactId) {
+    const res = await db.query(
+      `SELECT t.id, t.name, t.color
+       FROM contact_tags ct
+       JOIN tags t ON t.id = ct.tag_id
+       WHERE ct.contact_id = $1
+       ORDER BY t.name`,
+      [contactId]
+    );
+    return res.rows;
   }
 
   /** Add a contact to an account.
@@ -90,42 +131,35 @@ class Contact {
     return result.rows[0];
   }
 
-  /** Find all contacts.
-   *
-   * Returns [{ id, name, image, type, phone, email, website, street1, street2, city, state, zip_code, country, country_code, notes, role, created_at, updated_at }, ...]
-   **/
+  /** Find all contacts with tags. */
   static async getAll() {
     const result = await db.query(
-      `SELECT id,
-              name,
-              image,
-              type,
-              phone,
-              email,
-              website,
-              street1,
-              street2,
-              city,
-              state,
-              zip_code,
-              country,
-              country_code,
-              notes,
-              role,
-              created_at,
-              updated_at
-       FROM contacts
-       ORDER BY name`
+      `SELECT c.id,
+              c.name,
+              c.image,
+              c.type,
+              c.phone,
+              c.email,
+              c.website,
+              c.street1,
+              c.street2,
+              c.city,
+              c.state,
+              c.zip_code,
+              c.country,
+              c.country_code,
+              c.notes,
+              c.role,
+              c.created_at,
+              c.updated_at,
+              ${TAGS_SUBQUERY} AS tags
+       FROM contacts c
+       ORDER BY c.name`
     );
-
-    return result.rows;
+    return result.rows.map((r) => ({ ...r, tags: r.tags || [] }));
   }
 
-  /** Get all contacts for a specific account.
-   *
-   * Returns [{ id, name, image, type, phone, email, website, street1, street2, city, state, zip_code, country, country_code, notes, role, created_at, updated_at }, ...]
-   * Returns empty array if no contacts found.
-   **/
+  /** Get all contacts for a specific account with tags. */
   static async getByAccountId(accountId) {
     const result = await db.query(
       `SELECT c.id,
@@ -145,106 +179,83 @@ class Contact {
               c.notes,
               c.role,
               c.created_at,
-              c.updated_at
+              c.updated_at,
+              ${TAGS_SUBQUERY} AS tags
        FROM contacts c
        JOIN account_contacts ac ON ac.contact_id = c.id
        WHERE ac.account_id = $1
        ORDER BY c.name`,
       [accountId]
     );
-
-    return result.rows;
+    return result.rows.map((r) => ({ ...r, tags: r.tags || [] }));
   }
 
-  /** Given a contact id, return data about contact.
-   *
-   * Returns { id, name, image, type, phone, email, website, street1, street2, city, state, zip_code, country, country_code, notes, role, created_at, updated_at }
-   *
-   * Throws NotFoundError if not found.
-   **/
+  /** Given a contact id, return data about contact with tags. */
   static async get(id) {
     const result = await db.query(
-      `SELECT id,
-              name,
-              image,
-              type,
-              phone,
-              email,
-              website,
-              street1,
-              street2,
-              city,
-              state,
-              zip_code,
-              country,
-              country_code,
-              notes,
-              role,
-              created_at,
-              updated_at
-       FROM contacts
-       WHERE id = $1`,
+      `SELECT c.id,
+              c.name,
+              c.image,
+              c.type,
+              c.phone,
+              c.email,
+              c.website,
+              c.street1,
+              c.street2,
+              c.city,
+              c.state,
+              c.zip_code,
+              c.country,
+              c.country_code,
+              c.notes,
+              c.role,
+              c.created_at,
+              c.updated_at,
+              ${TAGS_SUBQUERY} AS tags
+       FROM contacts c
+       WHERE c.id = $1`,
       [id]
     );
 
     const contact = result.rows[0];
-
     if (!contact) throw new NotFoundError(`No contact: ${id}`);
-
+    contact.tags = contact.tags || [];
     return contact;
   }
 
   /** Update contact data with `data`.
    *
-   * This is a "partial update" --- it's fine if data doesn't contain
-   * all the fields; this only changes provided ones.
+   * Data can include: { name, image, type, phone, email, website, street1, street2, city, state, zip_code, country, country_code, notes, role, tagIds }
+   * tagIds replaces contact_tags.
    *
-   * Data can include: { name, image, type, phone, email, website, street1, street2, city, state, zip_code, country, country_code, notes, role }
-   *
-   * Returns { id, name, image, type, phone, email, website, street1, street2, city, state, zip_code, country, country_code, notes, role, created_at, updated_at }
-   *
-   * Throws NotFoundError if not found.
+   * Returns contact with tags array.
    */
   static async update(id, data) {
-    const { setCols, values } = sqlForPartialUpdate(data, {
-      zip_code: "zip_code",
-      country_code: "country_code"
-    });
-    const idVarIdx = "$" + (values.length + 1);
+    const { tagIds } = data;
+    const updateData = { ...data };
+    delete updateData.tagIds;
 
-    const querySql = `UPDATE contacts
-                      SET ${setCols}
-                      WHERE id = ${idVarIdx}
-                      RETURNING id,
-                                name,
-                                image,
-                                type,
-                                phone,
-                                email,
-                                website,
-                                street1,
-                                street2,
-                                city,
-                                state,
-                                zip_code,
-                                country,
-                                country_code,
-                                notes,
-                                role,
-                                created_at,
-                                updated_at`;
-    const result = await db.query(querySql, [...values, id]);
-    const contact = result.rows[0];
+    const keys = Object.keys(updateData);
+    if (keys.length > 0) {
+      const { setCols, values } = sqlForPartialUpdate(updateData, {
+        zip_code: "zip_code",
+        country_code: "country_code",
+      });
+      const idVarIdx = "$" + (values.length + 1);
+      await db.query(
+        `UPDATE contacts SET ${setCols} WHERE id = ${idVarIdx}`,
+        [...values, id]
+      );
+    }
 
-    if (!contact) throw new NotFoundError(`No contact: ${id}`);
+    if (tagIds !== undefined) {
+      await this._syncContactTags(id, tagIds);
+    }
 
-    return contact;
+    return this.get(id);
   }
 
-  /** Find a contact by email within a specific account.
-   *
-   * Returns the contact row if found, or null if not.
-   */
+  /** Find a contact by email within a specific account. */
   static async getByEmailAndAccount(email, accountId) {
     const result = await db.query(
       `SELECT c.id, c.name, c.email
@@ -257,38 +268,22 @@ class Contact {
     return result.rows[0] || null;
   }
 
-  /** Delete given contact from database; returns undefined.
-   *
-   * Throws NotFoundError if contact not found.
-   **/
+  /** Delete given contact from database. */
   static async remove(id) {
     const result = await db.query(
-      `DELETE
-       FROM contacts
-       WHERE id = $1
-       RETURNING id`,
+      `DELETE FROM contacts WHERE id = $1 RETURNING id`,
       [id]
     );
-    const contact = result.rows[0];
-
-    if (!contact) throw new NotFoundError(`No contact: ${id}`);
+    if (!result.rows[0]) throw new NotFoundError(`No contact: ${id}`);
   }
 
-  /** Remove contact from all accounts and then delete the contact.
-   *
-   * First removes all records from account_contacts for this contact,
-   * then deletes the contact itself by calling remove().
-   *
-   * Returns undefined.
-   *
-   * Throws NotFoundError if contact not found.
-   **/
+  /** Remove contact from all accounts and then delete the contact. */
   static async removeWithAccountLinks(id) {
     await db.query(
       `DELETE FROM account_contacts WHERE contact_id = $1`,
       [id]
     );
-
+    await db.query(`DELETE FROM contact_tags WHERE contact_id = $1`, [id]);
     await this.remove(id);
   }
 }

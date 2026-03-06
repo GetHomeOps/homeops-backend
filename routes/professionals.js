@@ -1,10 +1,13 @@
 "use strict";
 
 const express = require("express");
+const jsonschema = require("jsonschema");
 const { ensureLoggedIn, ensurePlatformAdmin } = require("../middleware/auth");
 const { BadRequestError } = require("../expressError");
 const Professional = require("../models/professional");
+const ProfessionalReview = require("../models/professionalReview");
 const { addPresignedUrlToItem, addPresignedUrlsToItems } = require("../helpers/presignedUrls");
+const professionalReviewNewSchema = require("../schemas/professionalReviewNew.json");
 
 const router = express.Router();
 
@@ -40,6 +43,69 @@ router.get("/", ensureLoggedIn, async function (req, res, next) {
   }
 });
 
+/** GET /:id/reviews - List reviews for a professional. */
+router.get("/:id/reviews", ensureLoggedIn, async function (req, res, next) {
+  try {
+    const professionalId = parseInt(req.params.id, 10);
+    if (isNaN(professionalId)) throw new BadRequestError("Invalid professional ID");
+    const reviews = await ProfessionalReview.getByProfessionalId(professionalId);
+    const aggregate = await ProfessionalReview.getAggregate(professionalId);
+    return res.json({
+      reviews,
+      aggregate: {
+        count: aggregate.count,
+        avgRating: parseFloat(aggregate.avgRating) || 0,
+      },
+    });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+/** GET /:id/review-eligibility - Check if current user can submit a review. */
+router.get("/:id/review-eligibility", ensureLoggedIn, async function (req, res, next) {
+  try {
+    const userId = res.locals.user?.id;
+    if (!userId) return res.status(401).json({ error: { message: "Unauthorized" } });
+    const professionalId = parseInt(req.params.id, 10);
+    if (isNaN(professionalId)) throw new BadRequestError("Invalid professional ID");
+    const canReview = await ProfessionalReview.checkEligibility(userId, professionalId);
+    const alreadyReviewed = await ProfessionalReview.hasUserReviewed(userId, professionalId);
+    return res.json({
+      canReview: canReview && !alreadyReviewed,
+      alreadyReviewed,
+      hasCompletedWork: canReview,
+    });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+/** POST /:id/reviews - Create a review (validates eligibility and one-per-user on backend). */
+router.post("/:id/reviews", ensureLoggedIn, async function (req, res, next) {
+  try {
+    const userId = res.locals.user?.id;
+    if (!userId) return res.status(401).json({ error: { message: "Unauthorized" } });
+    const professionalId = parseInt(req.params.id, 10);
+    if (isNaN(professionalId)) throw new BadRequestError("Invalid professional ID");
+    const validator = jsonschema.validate(req.body, professionalReviewNewSchema);
+    if (!validator.valid) {
+      const errs = validator.errors.map((e) => e.stack);
+      throw new BadRequestError(errs);
+    }
+    const { rating, comment } = req.body;
+    const review = await ProfessionalReview.create({
+      professionalId,
+      userId,
+      rating,
+      comment: comment || null,
+    });
+    return res.status(201).json({ review });
+  } catch (err) {
+    return next(err);
+  }
+});
+
 /** GET /:id - Get single professional with photos. */
 router.get("/:id", ensureLoggedIn, async function (req, res, next) {
   try {
@@ -55,9 +121,9 @@ router.get("/:id", ensureLoggedIn, async function (req, res, next) {
 /** POST / - Create professional. Admin only. */
 router.post("/", ensurePlatformAdmin, async function (req, res, next) {
   try {
-    const { first_name, last_name } = req.body;
-    if (!first_name?.trim() || !last_name?.trim()) {
-      throw new BadRequestError("first_name and last_name are required");
+    const { company_name } = req.body;
+    if (!company_name?.trim()) {
+      throw new BadRequestError("company_name is required");
     }
 
     const pro = await Professional.create(req.body);

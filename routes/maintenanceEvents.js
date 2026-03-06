@@ -10,6 +10,7 @@ const maintenanceEventNewSchema = require("../schemas/maintenanceEventNew.json")
 const maintenanceEventUpdateSchema = require("../schemas/maintenanceEventUpdate.json");
 const { onEventScheduled } = require("../services/resourceAutoSend");
 const { getMaintenanceAdvice } = require("../services/maintenanceAdviceService");
+const InspectionChecklistItem = require("../models/inspectionChecklistItem");
 
 const router = express.Router();
 
@@ -143,6 +144,13 @@ router.post(
         property_id: req.params.propertyId,
         created_by: res.locals.user.id,
       });
+
+      if (event.checklist_item_id) {
+        InspectionChecklistItem.update(event.checklist_item_id, {
+          status: "in_progress",
+        }).catch((err) => console.error("[inspectionChecklist] Auto-update failed:", err.message));
+      }
+
       const creatorRole = res.locals.user?.role;
       const roleForTrigger = creatorRole === "homeowner" ? "homeowner" : "agent";
       try {

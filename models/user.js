@@ -377,13 +377,14 @@ class User {
      * Callers of this function must be certain they have validated inputs to this
      * or serious security risks are opened.
      */
-  static async update({ id, name, phone, contact, image }) {
+  static async update({ id, name, phone, contact, image, avatar_url }) {
     try {
       const fields = {};
       if (name !== undefined) fields.name = name;
       if (phone !== undefined) fields.phone = phone;
       if (contact !== undefined) fields.contact_id = contact;
       if (image !== undefined) fields.image = image;
+      if (avatar_url !== undefined) fields.avatar_url = avatar_url;
 
       if (Object.keys(fields).length === 0) {
         throw new BadRequestError("No data to update");

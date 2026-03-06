@@ -18,7 +18,8 @@
     "email_reminder":            { "type": "boolean" },
     "message_enabled":           { "type": "boolean" },
     "message_body":              { "type": ["string", "null"] },
-    "timezone":                  { "type": ["string", "null"], "maxLength": 50 }
+    "timezone":                  { "type": ["string", "null"], "maxLength": 50 },
+    "checklist_item_id":         { "type": ["integer", "null"] }
   },
   "required": ["system_key", "scheduled_date"],
   "additionalProperties": false

@@ -8,135 +8,100 @@ const { BadRequestError } = require("../expressError");
 
 const router = new express.Router();
 
-const ATTOM_API_KEY = process.env.ATTOM_API_KEY;
-const ATTOM_BASE_URL = "https://api.gateway.attomdata.com/propertyapi/v1.0.0";
+const RENTCAST_API_KEY = process.env.RENTCAST_API_KEY;
+const RENTCAST_BASE_URL = "https://api.rentcast.io/v1";
 
 /**
- * Map the ATTOM property/detail response into the flat field schema
+ * Map the RentCast property response into the flat field schema
  * the frontend expects.
  */
-function mapAttomToFields(prop) {
-  const summary = prop.summary ?? {};
-  const building = prop.building ?? {};
-  const lot = prop.lot ?? {};
-  const rooms = building.rooms ?? {};
-  const size = building.size ?? {};
-  const interior = building.interior ?? {};
-  const construction = building.construction ?? {};
-  const parking = building.parking ?? {};
-  const area = prop.area ?? {};
-  const assessment = prop.assessment ?? {};
-  const market = assessment.market ?? {};
+function mapRentCastToFields(prop) {
+  const features = prop.features ?? {};
   const owner = prop.owner ?? {};
-  const owner1 = owner.owner1 ?? {};
-  const owner2 = owner.owner2 ?? {};
-  const owner3 = owner.owner3 ?? {};
-  const identifier = prop.identifier ?? {};
-  const addr = prop.address ?? {};
+  const mailingAddr = owner.mailingAddress ?? {};
+  const taxAssessments = prop.taxAssessments ?? {};
 
-  const propTypeMap = {
-    SFR: "Single Family",
-    CONDO: "Condo",
-    TOWNHOUSE: "Townhouse",
-    APARTMENT: "Multi-Family",
-    MOBILE: "Mobile Home",
-    COOP: "Co-op",
-  };
+  // Get latest tax assessment value for estimatedValue
+  const assessmentYears = Object.keys(taxAssessments)
+    .filter((k) => /^\d{4}$/.test(k))
+    .map(Number)
+    .sort((a, b) => b - a);
+  const latestYear = assessmentYears[0];
+  const latestAssessment = latestYear ? taxAssessments[String(latestYear)] : null;
+  const estimatedValue = latestAssessment?.value ?? null;
 
-  const rawType = summary.proptype ?? "";
-  const propertyType =
-    propTypeMap[rawType.toUpperCase()] || summary.propclass || rawType || "";
+  // Owner names from RentCast owner.names array
+  const ownerNames = owner.names ?? [];
+  const owner1Name = ownerNames[0] ?? "";
+  const owner2Name = ownerNames[1] ?? "";
 
-  const lotAcres = lot.lotsize1;
-  const lotSqFt = lot.lotsize2;
+  // Lot size: RentCast returns sq ft as number; format as "X sf"
+  const lotSizeSqFt = prop.lotSize;
   let lotSize = "";
-  if (lotAcres != null && lotSqFt != null) {
-    lotSize = `${lotAcres} ac / ${Number(lotSqFt).toLocaleString()} sf`;
-  } else if (lotAcres != null) {
-    lotSize = `${lotAcres} ac`;
-  } else if (lotSqFt != null) {
-    lotSize = `${Number(lotSqFt).toLocaleString()} sf`;
+  if (lotSizeSqFt != null && Number.isFinite(Number(lotSizeSqFt))) {
+    lotSize = `${Number(lotSizeSqFt).toLocaleString()} sf`;
   }
 
-  const prkgSpaces = parseInt(parking.prkgSpaces, 10) || null;
-  const prkgType = parking.prkgType ?? "";
-  let parkingType = prkgType;
-  if (prkgType && prkgSpaces) {
-    parkingType = `${prkgType} (${prkgSpaces} spaces)`;
-  }
-  const garageSqFt = parking.garageSqFt ?? parking.gaession ?? null;
-
-  const bsmtType = (interior.bsmttype ?? "").replace(/_/g, " ");
-  const bsmtSize = interior.bsmtsize;
-  let basement = bsmtType
-    ? bsmtType.charAt(0).toUpperCase() + bsmtType.slice(1).toLowerCase()
-    : "";
-  if (basement && bsmtSize) {
-    basement = `${basement} (${Number(bsmtSize).toLocaleString()} sf)`;
+  // Parking: RentCast has garageSpaces and garageType
+  const garageSpaces = features.garageSpaces != null ? parseInt(features.garageSpaces, 10) : null;
+  const garageType = features.garageType ?? "";
+  let parkingType = garageType;
+  if (garageType && garageSpaces) {
+    parkingType = `${garageType} (${garageSpaces} spaces)`;
   }
 
-  // Owner names from ATTOM owner.owner1 / owner.owner2 / owner.owner3 (firstnameandmi + lastname)
-  const owner1Name = [owner1.firstnameandmi, owner1.lastname].filter(Boolean).join(" ").trim() || null;
-  const owner2Raw = [owner2.firstnameandmi, owner2.lastname].filter(Boolean).join(" ").trim() || null;
-  const owner3Raw = [owner3.firstnameandmi, owner3.lastname].filter(Boolean).join(" ").trim() || null;
-  const owner2Name = owner2Raw || owner3Raw || null;
-  const mailingOneLine = owner.mailingaddressoneline ?? owner.mailingAddressOneLine ?? "";
-  // Parse city from "123 Main St, City, ST 12345" if no dedicated city field
-  let ownerCity = owner.mailingcity ?? owner.mailingCity ?? null;
-  if (!ownerCity && mailingOneLine) {
-    const parts = mailingOneLine.split(",").map((p) => p.trim());
-    if (parts.length >= 2) ownerCity = parts[1];
-  }
+  // Basement: RentCast has foundationType which may indicate basement
+  const foundationType = features.foundationType ?? "";
+  const basement = foundationType || "";
 
-  const taxId = identifier.apn ?? identifier.obPropId ?? identifier.parcelNumber ?? "";
-  // ATTOM addr.line2 contains city, state, zip — NOT apt/suite. Only use secondaryUnit for addressLine2.
-  const addressLine2 = addr.secondaryUnit ?? "";
+  // Fireplace: RentCast has boolean fireplace and fireplaceType
+  const hasFireplace = features.fireplace === true;
+  const fireplaces = hasFireplace ? 1 : null;
+  const fireplaceTypes = features.fireplaceType ?? "";
 
   return {
-    ownerName: owner1Name ?? "",
-    ownerName2: owner2Name ?? "",
-    ownerCity: ownerCity ?? "",
-    taxId: taxId || "",
-    addressLine2: addressLine2 || "",
-    propertyType,
-    subType: summary.propsubtype ?? "",
-    roofType: construction.rooftype ?? "",
-    yearBuilt: summary.yearbuilt ?? null,
-    sqFtTotal: size.universalsize ?? size.bldgsize ?? null,
-    sqFtFinished: size.livingsize ?? null,
-    sqFtUnfinished: bsmtSize && bsmtType?.toLowerCase()?.includes("unfinished")
-      ? bsmtSize
-      : null,
-    garageSqFt: garageSqFt ?? null,
-    totalDwellingSqFt: size.grosssize ?? size.grosssizeadjusted ?? null,
+    ownerName: owner1Name || "",
+    ownerName2: owner2Name || "",
+    ownerCity: mailingAddr.city ?? "",
+    taxId: prop.assessorID ?? "",
+    addressLine2: prop.addressLine2 ?? "",
+    propertyType: prop.propertyType ?? "",
+    subType: prop.subdivision ?? "",
+    roofType: features.roofType ?? "",
+    yearBuilt: prop.yearBuilt ?? null,
+    sqFtTotal: prop.squareFootage ?? null,
+    sqFtFinished: prop.squareFootage ?? null,
+    sqFtUnfinished: null,
+    garageSqFt: null,
+    totalDwellingSqFt: prop.squareFootage ?? null,
     lotSize,
-    bedCount: rooms.beds ?? null,
-    bathCount: rooms.bathstotal ?? null,
-    fullBaths: rooms.bathsfull ?? null,
-    threeQuarterBaths: rooms.bathsthreequarter ?? null,
-    halfBaths: rooms.bathshalf ?? null,
+    bedCount: prop.bedrooms ?? null,
+    bathCount: prop.bathrooms ?? null,
+    fullBaths: null,
+    threeQuarterBaths: null,
+    halfBaths: null,
     numberOfShowers: null,
     numberOfBathtubs: null,
-    fireplaces: interior.fplccount ?? null,
-    fireplaceTypes: interior.fplctype ?? "",
+    fireplaces,
+    fireplaceTypes,
     basement,
     parkingType,
-    totalCoveredParking: prkgSpaces,
+    totalCoveredParking: garageSpaces,
     totalUncoveredParking: null,
-    schoolDistrict: area.munname ?? "",
+    schoolDistrict: "",
     elementarySchool: "",
     juniorHighSchool: "",
     seniorHighSchool: "",
-    estimatedValue: market.mktttlvalue ?? null,
-    county: area.countyname ?? "",
+    estimatedValue,
+    county: prop.county ?? "",
   };
 }
 
-/** POST /property-details — Look up property details from ATTOM public records. */
+/** POST /property-details — Look up property details from RentCast public records. */
 router.post("/property-details", ensureLoggedIn, async function (req, res, next) {
   try {
-    if (!ATTOM_API_KEY) {
-      throw new BadRequestError("ATTOM API key is not configured");
+    if (!RENTCAST_API_KEY) {
+      throw new BadRequestError("RentCast API key is not configured");
     }
 
     const { address, addressLine1, city, state, zip } = req.body ?? {};
@@ -148,7 +113,7 @@ router.post("/property-details", ensureLoggedIn, async function (req, res, next)
 
     let cityStateZip = "";
     if (city && state) {
-      cityStateZip = zip ? `${city}, ${state} ${zip}` : `${city}, ${state}`;
+      cityStateZip = zip ? `${city}, ${state}, ${zip}` : `${city}, ${state}`;
     } else if (zip) {
       cityStateZip = zip;
     }
@@ -156,24 +121,22 @@ router.post("/property-details", ensureLoggedIn, async function (req, res, next)
       throw new BadRequestError("City/State or ZIP is required");
     }
 
-    const params = new URLSearchParams({
-      address1: streetAddress,
-      address2: cityStateZip,
-    });
-
-    const url = `${ATTOM_BASE_URL}/property/detailowner?${params.toString()}`;
+    // RentCast expects: "Street, City, State, Zip"
+    const fullAddress = `${streetAddress}, ${cityStateZip}`;
+    const params = new URLSearchParams({ address: fullAddress });
+    const url = `${RENTCAST_BASE_URL}/properties?${params.toString()}`;
 
     const response = await fetch(url, {
       method: "GET",
       headers: {
         accept: "application/json",
-        apikey: ATTOM_API_KEY,
+        "X-Api-Key": RENTCAST_API_KEY,
       },
     });
 
     if (!response.ok) {
       const errorBody = await response.text();
-      console.error("ATTOM API error:", response.status, errorBody);
+      console.error("RentCast API error:", response.status, errorBody);
 
       if (response.status === 404 || response.status === 204 || response.status === 400) {
         throw new BadRequestError(
@@ -181,10 +144,10 @@ router.post("/property-details", ensureLoggedIn, async function (req, res, next)
         );
       }
       if (response.status === 401 || response.status === 403) {
-        throw new BadRequestError("ATTOM API authentication failed. Please contact support.");
+        throw new BadRequestError("RentCast API authentication failed. Please contact support.");
       }
       if (response.status === 429) {
-        throw new BadRequestError("ATTOM API rate limit reached. Please try again in a few minutes.");
+        throw new BadRequestError("RentCast API rate limit reached. Please try again in a few minutes.");
       }
       throw new BadRequestError(
         "Property could not be found. Please verify the address and try again."
@@ -193,32 +156,32 @@ router.post("/property-details", ensureLoggedIn, async function (req, res, next)
 
     const data = await response.json();
 
-    // Debug: write full ATTOM response to file (console.log can truncate large JSON)
-    const debugPath = path.join(process.cwd(), "attom-debug.json");
+    // Debug: write full RentCast response to file (optional, for troubleshooting)
+    const debugPath = path.join(process.cwd(), "rentcast-debug.json");
     try {
       fs.writeFileSync(debugPath, JSON.stringify(data, null, 2), "utf8");
-      console.log("ATTOM API raw response written to", debugPath);
+      console.log("RentCast API raw response written to", debugPath);
     } catch (writeErr) {
-      console.error("ATTOM debug write failed:", writeErr.message);
+      console.error("RentCast debug write failed:", writeErr.message);
     }
 
-    const properties = data.property;
-
-    if (!properties || properties.length === 0) {
+    // RentCast returns an array of properties
+    const properties = Array.isArray(data) ? data : [];
+    if (properties.length === 0) {
       throw new BadRequestError(
         "Property could not be found. Please verify the address and try again."
       );
     }
 
-    const prediction = mapAttomToFields(properties[0]);
+    const prediction = mapRentCastToFields(properties[0]);
 
     return res.json({
       prediction,
-      source: "attom",
+      source: "rentcast",
     });
   } catch (err) {
     if (err instanceof BadRequestError) return next(err);
-    console.error("ATTOM property lookup error:", err);
+    console.error("RentCast property lookup error:", err);
     return next(new BadRequestError("Property could not be found. Please verify the address and try again."));
   }
 });

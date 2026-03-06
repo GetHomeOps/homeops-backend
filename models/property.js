@@ -20,7 +20,7 @@ const { BadRequestError, NotFoundError } = require("../expressError");
 const { generatePassportId } = require("../helpers/properties");
 const { sqlForPartialUpdate } = require("../helpers/sql");
 
-/** Insertable columns for properties (matches pos-schema.sql; excludes id, created_at, updated_at) */
+/** Insertable columns for properties (matches opsy-schema.sql; excludes id, created_at, updated_at) */
 const PROPERTY_INSERT_COLUMNS = [
   "property_uid",
   "account_id",

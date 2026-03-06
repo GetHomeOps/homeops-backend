@@ -81,6 +81,17 @@ router.get("/costs/per-account", ensurePlatformAdmin, async function (req, res, 
   }
 });
 
+/** GET /costs/per-user - Cost per user with API calls, documents, storage. Query: startDate, endDate. Platform admin only. */
+router.get("/costs/per-user", ensurePlatformAdmin, async function (req, res, next) {
+  try {
+    const { startDate, endDate } = req.query;
+    const data = await PlatformMetrics.getCostPerUser({ startDate, endDate });
+    return res.json({ users: data });
+  } catch (err) {
+    return next(err);
+  }
+});
+
 /** GET /agents - Agent analytics: agents, their properties, homeowners, invitations, communications, visits. Platform admin only. */
 router.get("/agents", ensurePlatformAdmin, async function (req, res, next) {
   try {

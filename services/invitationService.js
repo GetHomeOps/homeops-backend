@@ -25,6 +25,8 @@ const Subscription = require("../models/subscription");
 const SubscriptionProduct = require("../models/subscriptionProduct");
 const { onUserCreated } = require("./resourceAutoSend");
 const Notification = require("../models/notification");
+const { sendInvitationEmail } = require("./emailService");
+const { APP_BASE_URL } = require("../config");
 
 const VALID_ACCOUNT_ROLES = new Set(["owner", "admin", "member", "view_only"]);
 
@@ -98,6 +100,12 @@ async function createPropertyInvitation({ inviterUserId, inviteeEmail, accountId
     }
   }
 
+  try {
+    await sendInvitationEmailForInvitation({ invitation, token, inviterUserId, type: 'property' });
+  } catch (err) {
+    console.error("[invitationService] Failed to send invitation email:", err.message);
+  }
+
   return { invitation, token };
 }
 
@@ -117,7 +125,39 @@ async function createAccountInvitation({ inviterUserId, inviteeEmail, accountId,
     expiresAt,
   });
 
+  try {
+    await sendInvitationEmailForInvitation({ invitation, token, inviterUserId, type: 'account' });
+  } catch (err) {
+    console.error("[invitationService] Failed to send invitation email:", err.message);
+  }
+
   return { invitation, token };
+}
+
+/** Build invite URL and send email. Used after create and resend. */
+async function sendInvitationEmailForInvitation({ invitation, token, inviterUserId, type }) {
+  const baseUrl = (APP_BASE_URL || process.env.APP_WEB_ORIGIN || "http://localhost:5173").replace(/\/$/, "");
+  const account = await Account.get(invitation.accountId);
+  const accountUrl = account?.url || account?.name || "home";
+  const inviteUrl = `${baseUrl}/#/${accountUrl}/invite/confirm?token=${encodeURIComponent(token)}&email=${encodeURIComponent(invitation.inviteeEmail)}`;
+  let inviterName = null;
+  let propertyAddress = null;
+  if (inviterUserId) {
+    const inviter = await db.query(`SELECT name FROM users WHERE id = $1`, [inviterUserId]);
+    inviterName = inviter.rows[0]?.name || null;
+  }
+  if (type === 'property' && invitation.propertyId) {
+    const prop = await db.query(`SELECT address FROM properties WHERE id = $1`, [invitation.propertyId]);
+    propertyAddress = prop.rows[0]?.address || null;
+  }
+  await sendInvitationEmail({
+    to: invitation.inviteeEmail,
+    inviteUrl,
+    inviterName,
+    inviteeName: null,
+    type,
+    propertyAddress,
+  });
 }
 
 async function acceptInvitation({ rawToken, password, name, invitation: preFetchedInvitation, userId: preFetchedUserId }) {
@@ -297,9 +337,18 @@ async function acceptInvitationForLoggedInUser(invitationId, userId, userEmail) 
   return acceptInvitation({ invitation, userId });
 }
 
+/** Resend invitation email. Generates new token and sends email. */
+async function resendInvitation(invitationId, inviterUserId) {
+  const { invitation, token } = await Invitation.regenerateToken(invitationId);
+  const type = invitation.type || 'account';
+  await sendInvitationEmailForInvitation({ invitation, token, inviterUserId, type });
+  return { invitation, token };
+}
+
 module.exports = {
   createPropertyInvitation,
   createAccountInvitation,
   acceptInvitation,
   acceptInvitationForLoggedInUser,
+  resendInvitation,
 };

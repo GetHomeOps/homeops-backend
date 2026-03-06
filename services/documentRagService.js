@@ -162,12 +162,18 @@ async function searchChunks(propertyId, query, options = {}) {
     WHERE c.property_id = $1 AND c.embedding IS NOT NULL
   `;
   const params = [propertyId];
+  let paramIdx = 1;
   if (systemKey) {
+    paramIdx++;
     params.push(systemKey);
-    sql += ` AND system_key = $${params.length}`;
+    // Prefer system-specific docs; include "general" for property-wide documents
+    sql += ` AND (c.system_key = $${paramIdx} OR c.system_key = 'general')`;
   }
-  sql += ` ORDER BY embedding <=> $${params.length + 1} LIMIT $${params.length + 2}`;
-  params.push(embeddingSql, limit);
+  paramIdx++;
+  params.push(embeddingSql);
+  paramIdx++;
+  params.push(limit);
+  sql += ` ORDER BY ${systemKey ? `(CASE WHEN c.system_key = $2 THEN 0 ELSE 1 END), ` : ""}c.embedding <=> $${systemKey ? 3 : 2} LIMIT $${systemKey ? 4 : 3}`;
 
   const res = await db.query(sql, params);
   return res.rows;

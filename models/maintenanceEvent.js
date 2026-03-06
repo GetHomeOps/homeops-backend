@@ -11,7 +11,7 @@ const COLUMNS = `
   recurrence_type, recurrence_interval_value, recurrence_interval_unit,
   alert_timing, alert_custom_days, email_reminder,
   message_enabled, message_body,
-  status, timezone, created_by,
+  status, timezone, checklist_item_id, created_by,
   created_at, updated_at`;
 
 class MaintenanceEvent {
@@ -24,7 +24,7 @@ class MaintenanceEvent {
       recurrence_type = "one-time", recurrence_interval_value = null, recurrence_interval_unit = null,
       alert_timing = "3d", alert_custom_days = null, email_reminder = false,
       message_enabled = false, message_body = null,
-      status = "scheduled", timezone = null, created_by = null,
+      status = "scheduled", timezone = null, checklist_item_id = null, created_by = null,
     } = data;
 
     const result = await db.query(
@@ -35,8 +35,8 @@ class MaintenanceEvent {
           recurrence_type, recurrence_interval_value, recurrence_interval_unit,
           alert_timing, alert_custom_days, email_reminder,
           message_enabled, message_body,
-          status, timezone, created_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+          status, timezone, checklist_item_id, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
        RETURNING ${COLUMNS}`,
       [
         property_id, system_key, system_name || null,
@@ -45,7 +45,7 @@ class MaintenanceEvent {
         recurrence_type, recurrence_interval_value, recurrence_interval_unit,
         alert_timing, alert_custom_days, email_reminder,
         message_enabled, message_body,
-        status, timezone, created_by,
+        status, timezone, checklist_item_id, created_by,
       ],
     );
     return result.rows[0];

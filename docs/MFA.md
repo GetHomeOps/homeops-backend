@@ -12,13 +12,7 @@ TOTP-based MFA using authenticator apps (Google Authenticator, Microsoft Authent
 
 ## Database Setup
 
-Run the migration:
-
-```bash
-psql $DATABASE_URL -f migrations/007_add_mfa_tables.sql
-```
-
-Or ensure your schema includes:
+MFA tables are included in `opsy-schema.sql`. For a fresh install, run `opsyDB.sql` or `opsy-schema.sql`. Ensure your schema includes:
 - `users`: `mfa_enabled`, `mfa_secret_encrypted`, `mfa_enrolled_at`
 - `mfa_backup_codes`: `user_id`, `code_hash`, `used_at`
 - `mfa_enrollment_temp`: `user_id`, `secret_encrypted`, `expires_at`

@@ -296,7 +296,7 @@ router.get(
       }));
 
       const proDisplayName = (p) =>
-        p.company_name || `${p.first_name || ""} ${p.last_name || ""}`.trim() || "Professional";
+        p.company_name || p.contact_name || "Professional";
 
       const professionalItems = (savedProfessionals || []).map((p) => ({
         id: `pro-${p.id}`,

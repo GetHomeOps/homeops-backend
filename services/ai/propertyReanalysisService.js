@@ -10,7 +10,7 @@
 
 const OpenAI = require("openai");
 const db = require("../../db");
-const { normalizeSystemType } = require("../inspectionAnalysisService");
+const { normalizeSystemType } = require("../systemTypes");
 
 const CONFIDENCE_THRESHOLD_AUTO = 0.85;
 const CONFIDENCE_THRESHOLD_REVIEW = 0.5;

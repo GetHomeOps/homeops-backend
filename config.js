@@ -30,8 +30,8 @@ const AUTH_SUCCESS_REDIRECT = process.env.AUTH_SUCCESS_REDIRECT || (process.env.
 // Use dev database, testing database, or via env var, production database
 function getDatabaseUri() {
   return (process.env.NODE_ENV === "test")
-    ? "postgresql:///posdb_test"
-    : process.env.DATABASE_URL || "postgresql:///posdb";
+    ? "postgresql:///opsy_test"
+    : process.env.DATABASE_URL || "postgresql:///opsy";
 }
 // Speed up bcrypt during tests, since the algorithm safety isn't being tested
 //
@@ -40,7 +40,7 @@ const BCRYPT_WORK_FACTOR = process.env.NODE_ENV === "test" ? 1 : 12;
 
 if (process.env.NODE_ENV !== "test") {
   console.log(`
-${"PosDB Config:".green}
+${"Opsy Config:".green}
 ${"NODE_ENV:".yellow}           ${process.env.NODE_ENV}
 ${"SECRET_KEY:".yellow}         ${SECRET_KEY}
 ${"PORT:".yellow}               ${PORT}

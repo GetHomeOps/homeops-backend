@@ -1,14 +1,19 @@
-\echo 'Delete and recreate posDB db?'
+\echo 'Delete and recreate Opsy db?'
 \prompt 'Return for yes or control-C to cancel > ' confirm
 
 -- Drop the database if it exists
-DROP DATABASE IF EXISTS posdb;
+DROP DATABASE IF EXISTS opsy;
 -- Recreate the database
-CREATE DATABASE posdb;
+CREATE DATABASE opsy;
 -- Connect to the newly created database
-\connect posdb;
+\connect opsy;
 
 -- Drop tables in reverse dependency order
+DROP TABLE IF EXISTS comm_attachments CASCADE;
+DROP TABLE IF EXISTS comm_recipients CASCADE;
+DROP TABLE IF EXISTS comm_rules CASCADE;
+DROP TABLE IF EXISTS communications CASCADE;
+DROP TABLE IF EXISTS comm_templates CASCADE;
 DROP TABLE IF EXISTS support_ticket_replies CASCADE;
 DROP TABLE IF EXISTS plan_limits CASCADE;
 DROP TABLE IF EXISTS plan_prices CASCADE;
@@ -18,8 +23,10 @@ DROP TABLE IF EXISTS ai_action_drafts CASCADE;
 DROP TABLE IF EXISTS ai_messages CASCADE;
 DROP TABLE IF EXISTS ai_conversations CASCADE;
 DROP TABLE IF EXISTS property_ai_profiles CASCADE;
+DROP TABLE IF EXISTS inspection_checklist_items CASCADE;
 DROP TABLE IF EXISTS inspection_analysis_results CASCADE;
 DROP TABLE IF EXISTS inspection_analysis_jobs CASCADE;
+DROP TABLE IF EXISTS professional_reviews CASCADE;
 DROP TABLE IF EXISTS saved_professionals CASCADE;
 DROP TABLE IF EXISTS professional_photos CASCADE;
 DROP TABLE IF EXISTS professionals CASCADE;
@@ -35,35 +42,44 @@ DROP TABLE IF EXISTS subscription_products CASCADE;
 DROP TABLE IF EXISTS invitations CASCADE;
 DROP TABLE IF EXISTS document_chunks CASCADE;
 DROP TABLE IF EXISTS property_documents CASCADE;
+DROP TABLE IF EXISTS contractor_report_tokens CASCADE;
 DROP TABLE IF EXISTS property_maintenance CASCADE;
 DROP TABLE IF EXISTS property_systems CASCADE;
 DROP TABLE IF EXISTS property_users CASCADE;
 DROP TABLE IF EXISTS properties CASCADE;
+DROP TABLE IF EXISTS contact_tags CASCADE;
 DROP TABLE IF EXISTS account_contacts CASCADE;
 DROP TABLE IF EXISTS contacts CASCADE;
+DROP TABLE IF EXISTS tags CASCADE;
 DROP TABLE IF EXISTS account_users CASCADE;
 DROP TABLE IF EXISTS accounts CASCADE;
 DROP TABLE IF EXISTS mfa_backup_codes CASCADE;
 DROP TABLE IF EXISTS mfa_enrollment_temp CASCADE;
 DROP TABLE IF EXISTS users CASCADE;
+DROP TABLE IF EXISTS password_reset_tokens CASCADE;
 DROP TABLE IF EXISTS refresh_tokens CASCADE;
+DROP TABLE IF EXISTS notifications CASCADE;
 DROP TABLE IF EXISTS resources CASCADE;
 DROP TABLE IF EXISTS user_api_usage CASCADE;
 DROP TABLE IF EXISTS invitations CASCADE;
 DROP TABLE IF EXISTS notifications CASCADE;
 DROP TABLE IF EXISTS document_chunks CASCADE;
 DROP TABLE IF EXISTS property_documents CASCADE;
+DROP TABLE IF EXISTS contractor_report_tokens CASCADE;
 DROP TABLE IF EXISTS property_maintenance CASCADE;
 DROP TABLE IF EXISTS property_systems CASCADE;
 DROP TABLE IF EXISTS property_users CASCADE;
 DROP TABLE IF EXISTS properties CASCADE;
+DROP TABLE IF EXISTS contact_tags CASCADE;
 DROP TABLE IF EXISTS account_contacts CASCADE;
 DROP TABLE IF EXISTS contacts CASCADE;
+DROP TABLE IF EXISTS tags CASCADE;
 DROP TABLE IF EXISTS account_users CASCADE;
 DROP TABLE IF EXISTS accounts CASCADE;
 DROP TABLE IF EXISTS mfa_backup_codes CASCADE;
 DROP TABLE IF EXISTS mfa_enrollment_temp CASCADE;
 DROP TABLE IF EXISTS users CASCADE;
+DROP TABLE IF EXISTS password_reset_tokens CASCADE;
 DROP TABLE IF EXISTS refresh_tokens CASCADE;
 DROP TABLE IF EXISTS resources CASCADE;
 DROP TABLE IF EXISTS user_api_usage CASCADE;
@@ -104,4 +120,4 @@ DROP TYPE IF EXISTS record_status CASCADE;
 
 
 -- Import the new schema
-\i pos-schema.sql
+\i opsy-schema.sql

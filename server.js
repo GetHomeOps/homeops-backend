@@ -18,6 +18,7 @@ const User = require('./models/user');
 const Account = require('./models/account');
 const SubscriptionProduct = require('./models/subscriptionProduct');
 const { ensureStripePlans } = require('./services/planSeedService');
+const { ensureProfessionalCategories } = require('./services/professionalCategorySeedService');
 const fs = require('fs');
 
 const app = require('./app.js');
@@ -86,6 +87,12 @@ async function startServer() {
     } catch (planErr) {
       console.warn('[startup] Plan seed failed (plan_limits/plan_prices may be missing):', planErr.message);
       await SubscriptionProduct.initializeDefaultProducts();
+    }
+
+    try {
+      await ensureProfessionalCategories();
+    } catch (catErr) {
+      console.warn('[startup] Professional categories seed failed:', catErr.message);
     }
 
     app.listen(PORT, '0.0.0.0', () => {
